@@ -31,25 +31,28 @@ class DashboardServer:
         self._mcp_server = PolyHarvesterMCPServer(self.engine)
         self._mcp_sse_sessions = {}
 
-        # Initialize Polymarket Manager using config or database settings
-        poly_cfg = {}
-        if hasattr(self.engine, "db") and self.engine.db:
-            try:
-                poly_cfg = self.engine.db.get_polymarket_config()
-            except Exception:
-                poly_cfg = {}
+        # Share the engine's Polymarket Manager instance if available
+        if hasattr(self.engine, "poly_manager") and self.engine.poly_manager:
+            self.poly_manager = self.engine.poly_manager
+        else:
+            poly_cfg = {}
+            if hasattr(self.engine, "db") and self.engine.db:
+                try:
+                    poly_cfg = self.engine.db.get_polymarket_config()
+                except Exception:
+                    poly_cfg = {}
 
-        pk = poly_cfg.get("private_key") or getattr(self.engine.config, "private_key", "")
-        wa = poly_cfg.get("wallet_address") or getattr(self.engine.config, "wallet_address", "")
-        prx = poly_cfg.get("proxy_url") or getattr(self.engine.config, "proxy_url", "")
+            pk = poly_cfg.get("private_key") or getattr(self.engine.config, "private_key", "")
+            wa = poly_cfg.get("wallet_address") or getattr(self.engine.config, "wallet_address", "")
+            prx = poly_cfg.get("proxy_url") or getattr(self.engine.config, "proxy_url", "")
 
-        self.poly_manager = PolymarketManager(
-            private_key=pk,
-            wallet_address=wa,
-            proxy_url=prx,
-        )
-        if poly_cfg.get("live_trading_enabled") == 1:
-            self.engine.config.dry_run = False
+            self.poly_manager = PolymarketManager(
+                private_key=pk,
+                wallet_address=wa,
+                proxy_url=prx,
+            )
+            if poly_cfg.get("live_trading_enabled") == 1:
+                self.engine.config.dry_run = False
 
         self._setup_routes()
 

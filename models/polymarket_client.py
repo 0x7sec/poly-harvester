@@ -225,8 +225,8 @@ class PolymarketManager:
             "status": "ELIGIBLE",
         }
         self._balance_cache: Dict[str, Any] = {
-            "usdc_balance": 300.0,
-            "allowance": 10000.0,
+            "usdc_balance": 0.0,
+            "allowance": 0.0,
             "positions_count": 0,
             "updated_at": 0.0,
         }
@@ -289,21 +289,30 @@ class PolymarketManager:
             return self._balance_cache
 
         try:
-            allowance_info = await self._secure_client.get_balance_allowance()
-            # allowance_info typically returns balance in integer micro-units or float
-            bal = getattr(allowance_info, "balance", 300.0)
-            allowance = getattr(allowance_info, "allowance", 10000.0)
-            if isinstance(bal, (int, float)) and bal > 100000:
+            allowance_info = await self._secure_client.get_balance_allowance(asset_type="COLLATERAL")
+            bal_raw = getattr(allowance_info, "balance", 0.0)
+            bal = float(bal_raw)
+            if bal > 100000:
                 bal = bal / 1e6
 
+            allowances_dict = getattr(allowance_info, "allowances", {})
+            if isinstance(allowances_dict, dict) and allowances_dict:
+                max_allowance = max(float(v) for v in allowances_dict.values())
+                if max_allowance > 100000:
+                    max_allowance = max_allowance / 1e6
+                allowance = max_allowance
+            else:
+                allowance = float(getattr(allowance_info, "allowance", 0.0) or 0.0)
+
             self._balance_cache = {
-                "usdc_balance": float(bal),
-                "allowance": float(allowance),
+                "usdc_balance": round(bal, 2),
+                "allowance": round(allowance, 2),
                 "positions_count": 0,
                 "updated_at": time.time(),
             }
+            logger.info(f"Polymarket Live Balance: ${bal:.2f} USDC | Allowance: ${allowance:.2f}")
         except Exception as e:
-            logger.debug(f"Failed to query live balance allowance: {e}")
+            logger.warning(f"Failed to query live balance allowance: {e}")
 
         return self._balance_cache
 
