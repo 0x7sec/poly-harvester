@@ -242,6 +242,8 @@ class PaperTradingEngine:
                             "fee": round(fill_fee, 4),
                             "slippage_bps": round(slippage_bps, 1),
                             "remaining_shares": max(0.0, round(order.remaining_shares - fill_shares, 2)),
+                            "market_title": getattr(feed, "market_title", "BTC Up/Down Market") if feed else "BTC Up/Down Market",
+                            "market_slug": getattr(feed, "market_slug", "") if feed else "",
                         }
                         if self.db:
                             self.db.log_trade(
@@ -263,7 +265,7 @@ class PaperTradingEngine:
 
                         logger.info(
                             f"[REALISTIC PAPER FILL] UP: {fill_shares:.1f} shs @ ${fill_price:.3f} | "
-                            f"Fee: ${fill_fee:.4f} | Slip: {slippage_bps:+.1f}bps | Order: {event['order_id']}"
+                            f"Fee: ${fill_fee:.4f} | Slip: {slippage_bps:+.1f}bps | Order: {event['order_id']} | Market: {event['market_title']}"
                         )
 
         # =========================================================================
@@ -343,6 +345,8 @@ class PaperTradingEngine:
                             "fee": round(fill_fee, 4),
                             "slippage_bps": round(slippage_bps, 1),
                             "remaining_shares": max(0.0, round(order.remaining_shares - fill_shares, 2)),
+                            "market_title": getattr(feed, "market_title", "BTC Up/Down Market") if feed else "BTC Up/Down Market",
+                            "market_slug": getattr(feed, "market_slug", "") if feed else "",
                         }
                         if self.db:
                             self.db.log_trade(
@@ -364,7 +368,7 @@ class PaperTradingEngine:
 
                         logger.info(
                             f"[REALISTIC PAPER FILL] DOWN: {fill_shares:.1f} shs @ ${fill_price:.3f} | "
-                            f"Fee: ${fill_fee:.4f} | Slip: {slippage_bps:+.1f}bps | Order: {event['order_id']}"
+                            f"Fee: ${fill_fee:.4f} | Slip: {slippage_bps:+.1f}bps | Order: {event['order_id']} | Market: {event['market_title']}"
                         )
 
         return filled_events

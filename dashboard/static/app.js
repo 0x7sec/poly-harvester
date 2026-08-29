@@ -1084,12 +1084,22 @@ async function loadTrades() {
             const trades = data.trades || [];
             document.getElementById("tradeCountLabel").textContent = `${trades.length} Fills (${data.session_id || selectedSessionId})`;
             if (trades.length === 0) {
-                tradeBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No trades recorded for this session. Waiting for live CLOB fills...</td></tr>`;
+                tradeBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">No trades recorded for this session. Waiting for live CLOB fills...</td></tr>`;
                 return;
             }
-            tradeBody.innerHTML = trades.map(t => `
+            tradeBody.innerHTML = trades.map(t => {
+                const title = t.market_title || "Polymarket Prediction Market";
+                const slug = t.market_slug || "";
+                const marketUrl = slug ? `https://polymarket.com/event/${slug}` : `https://polymarket.com`;
+                return `
                 <tr>
                     <td class="text-muted">${t.time_iso || ''}</td>
+                    <td class="market-col">
+                        <a href="${marketUrl}" target="_blank" rel="noopener noreferrer" class="trade-market-link" title="${title}">
+                            <i data-lucide="external-link" class="icon-2xs text-cyan"></i>
+                            <span class="market-name-truncate">${title}</span>
+                        </a>
+                    </td>
                     <td><span class="side-badge ${t.side.toLowerCase()}">${t.side}</span></td>
                     <td class="font-bold text-white">$${t.price.toFixed(3)}</td>
                     <td>${t.shares.toFixed(1)}</td>
@@ -1097,7 +1107,8 @@ async function loadTrades() {
                     <td class="text-muted">$${t.fee_usd.toFixed(3)}</td>
                     <td><span class="badge font-mono">${t.execution_type}</span></td>
                 </tr>
-            `).join("");
+            `}).join("");
+            refreshIcons();
         }
     } catch (e) {}
 }

@@ -222,9 +222,17 @@ class DatabaseManager:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_status ON trading_sessions(status);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_start ON trading_sessions(start_time);")
 
-                # Schema Migrations: Add session_id to trades and complete_sets if absent
+                # Schema Migrations: Add session_id, market_title, market_slug to trades and complete_sets if absent
                 try:
                     cursor.execute("ALTER TABLE trades ADD COLUMN session_id TEXT NOT NULL DEFAULT 'GLOBAL'")
+                except Exception:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE trades ADD COLUMN market_title TEXT DEFAULT ''")
+                except Exception:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE trades ADD COLUMN market_slug TEXT DEFAULT ''")
                 except Exception:
                     pass
                 try:
@@ -487,6 +495,8 @@ class DatabaseManager:
         """Appends an executed trade fill to the SQLite database."""
         now = trade_event.get("timestamp", time.time())
         time_iso = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        market_title = trade_event.get("market_title", "")
+        market_slug = trade_event.get("market_slug", "")
         with self._lock:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -494,8 +504,9 @@ class DatabaseManager:
                     """
                     INSERT INTO trades (
                         timestamp, time_iso, order_id, side, price, shares, cost_usd, fee_usd,
-                        execution_type, up_shares_after, down_shares_after, session_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        execution_type, up_shares_after, down_shares_after, session_id,
+                        market_title, market_slug
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         now,
@@ -510,6 +521,8 @@ class DatabaseManager:
                         float(up_shares_after),
                         float(down_shares_after),
                         session_id,
+                        market_title,
+                        market_slug,
                     ),
                 )
                 conn.commit()
@@ -593,7 +606,8 @@ class DatabaseManager:
                 cursor.execute(
                     """
                     SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
-                           fee_usd, execution_type, up_shares_after, down_shares_after
+                           fee_usd, execution_type, up_shares_after, down_shares_after,
+                           session_id, market_title, market_slug
                     FROM trades
                     ORDER BY id DESC
                     LIMIT ? OFFSET ?
@@ -1102,7 +1116,8 @@ class DatabaseManager:
                     cursor.execute(
                         """
                         SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
-                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id
+                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id,
+                               market_title, market_slug
                         FROM trades
                         WHERE session_id = ?
                         ORDER BY id DESC
@@ -1114,7 +1129,8 @@ class DatabaseManager:
                     cursor.execute(
                         """
                         SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
-                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id
+                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id,
+                               market_title, market_slug
                         FROM trades
                         ORDER BY id DESC
                         LIMIT ? OFFSET ?

@@ -2283,3 +2283,38 @@ svg.lucide, [data-lucide] {
     padding: 10px 12px;
     border-radius: var(--radius-xs);
 }
+
+/* Executed Trade Table Market Link Styles */
+.market-col {
+    max-width: 260px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.trade-market-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--accent-cyan);
+    text-decoration: none;
+    font-size: 0.78rem;
+    font-weight: 600;
+    max-width: 250px;
+    transition: all 0.2s ease;
+}
+
+.trade-market-link:hover {
+    color: #ffffff;
+    text-decoration: underline;
+    text-shadow: 0 0 8px rgba(6, 182, 212, 0.6);
+}
+
+.market-name-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    max-width: 220px;
+    vertical-align: middle;
+}
