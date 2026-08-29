@@ -38,7 +38,7 @@ class TestStorageAndRecovery(unittest.TestCase):
 
     def test_session_token_lifecycle(self):
         """Tests session creation, validation, and revocation."""
-        token = self.db.create_session("admin", "admin", duration_seconds=3600)
+        token = self.db.create_auth_session(username="admin", role="admin", duration_seconds=3600)
         self.assertTrue(len(token) > 20)
 
         # Validate active session
@@ -125,7 +125,7 @@ class TestStorageAndRecovery(unittest.TestCase):
     def test_paper_engine_trade_logging(self):
         """Tests that PaperTradingEngine records fills to SQLite."""
         inv = InventoryManager(db=self.db, max_combined_cost=0.960)
-        engine = PaperTradingEngine(inventory=inv, order_size_shares=20.0, db=self.db)
+        engine = PaperTradingEngine(inventory=inv, order_size_shares=20.0, in_flight_latency_sec=0.0, db=self.db)
 
         engine.update_quotes(quote_up=0.46, quote_down=0.48, allow_up=True, allow_down=True)
         engine.check_fills(

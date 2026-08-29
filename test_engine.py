@@ -1,12 +1,14 @@
 """
 Unit and Integration verification tests for the Polymarket Quant Engine components,
-including Binance integration and Mandatory Risk Safeguards.
+including Binance integration, Realistic CLOB Matching Engine, and Mandatory Risk Safeguards.
 """
+import time
 import unittest
 from models.fair_value import FairValueModel
 from models.inventory import InventoryManager
 from models.quoter import QuotingEngine
-from execution.paper_engine import PaperTradingEngine
+from execution.paper_engine import PaperTradingEngine, VirtualOrder
+from feeds.polymarket_feed import PolymarketFeed
 
 
 class TestPolymarketQuantEngine(unittest.TestCase):
@@ -96,24 +98,91 @@ class TestPolymarketQuantEngine(unittest.TestCase):
         summary = inventory.get_summary()
         self.assertTrue(summary["is_stop_loss_triggered"])
 
-    def test_paper_trading_fill_simulation(self):
-        """Tests paper trading engine fills virtual limit bids when market ask touches limit price."""
+    def test_paper_engine_does_not_fill_on_dead_wide_market(self):
+        """
+        Tests that in a wide/dead market (e.g. 0.01 bid / 0.99 ask) with NO trades,
+        bidding at $0.46 does NOT fill artificially.
+        """
         inventory = InventoryManager(max_combined_cost=0.960)
-        engine = PaperTradingEngine(inventory=inventory, order_size_shares=20.0)
+        engine = PaperTradingEngine(inventory=inventory, order_size_shares=20.0, in_flight_latency_sec=0.0)
 
-        engine.update_quotes(quote_up=0.45, quote_down=0.48, allow_up=True, allow_down=True)
+        feed = PolymarketFeed(auto_discover=False)
+        feed.up_best_bid = 0.01
+        feed.up_best_ask = 0.99
+        feed.down_best_bid = 0.01
+        feed.down_best_ask = 0.99
+        feed.up_bids = [{"price": 0.01, "size": 100.0}]
+        feed.up_asks = [{"price": 0.99, "size": 100.0}]
 
+        engine.update_quotes(quote_up=0.46, quote_down=0.43, allow_up=True, allow_down=True, feed=feed)
+
+        # No trade prints, ask is $0.99
+        fills = engine.check_fills(
+            up_market_ask=0.99,
+            down_market_ask=0.99,
+            feed=feed,
+        )
+
+        self.assertEqual(len(fills), 0, "Should NOT fill when spread is wide and no trade prints occur")
+        self.assertEqual(inventory.up.shares, 0.0)
+        self.assertEqual(inventory.down.shares, 0.0)
+
+    def test_paper_engine_direct_cross_fill(self):
+        """
+        Tests direct fill when market ask crosses our limit bid price.
+        """
+        inventory = InventoryManager(max_combined_cost=0.960)
+        engine = PaperTradingEngine(inventory=inventory, order_size_shares=20.0, in_flight_latency_sec=0.0)
+
+        feed = PolymarketFeed(auto_discover=False)
+        feed.up_best_ask = 0.45
+        feed.up_asks = [{"price": 0.45, "size": 50.0}]
+
+        engine.update_quotes(quote_up=0.46, quote_down=0.43, allow_up=True, allow_down=True, feed=feed)
+
+        # Market ask is 0.45 <= our bid 0.46
         fills = engine.check_fills(
             up_market_ask=0.45,
-            up_last_trade=0.46,
-            down_market_ask=0.52,
-            down_last_trade=0.53,
+            down_market_ask=0.55,
+            feed=feed,
         )
 
         self.assertEqual(len(fills), 1)
         self.assertEqual(fills[0]["side"], "UP")
+        self.assertEqual(fills[0]["shares"], 20.0)
         self.assertEqual(fills[0]["price"], 0.45)
         self.assertEqual(inventory.up.shares, 20.0)
+
+    def test_paper_engine_queue_priority_and_trade_consumption(self):
+        """
+        Tests that when an order is placed behind 30 shares in queue,
+        a trade of 20 shares consumes queue ahead and does NOT fill our order,
+        but a subsequent trade of 20 shares fills 10 shares of our order (partial fill).
+        """
+        inventory = InventoryManager(max_combined_cost=0.960)
+        engine = PaperTradingEngine(inventory=inventory, order_size_shares=20.0, in_flight_latency_sec=0.0)
+
+        feed = PolymarketFeed(auto_discover=False)
+        feed.up_bids = [{"price": 0.46, "size": 30.0}]
+        feed.up_best_ask = 0.50
+
+        # Place bid at 0.46; 30 shares are sitting ahead
+        engine.update_quotes(quote_up=0.46, quote_down=0.43, allow_up=True, allow_down=True, feed=feed)
+        self.assertEqual(engine.active_order_up.queue_ahead_shares, 30.0)
+
+        # Trade 1: 20 shares @ 0.46 -> Consumes 20 shares of queue ahead (10 remaining ahead)
+        feed.record_simulated_trade("UP", price=0.46, size=20.0)
+        fills1 = engine.check_fills(up_market_ask=0.50, down_market_ask=0.50, feed=feed)
+        self.assertEqual(len(fills1), 0, "Trade volume was absorbed by queue ahead; no fill yet")
+        self.assertEqual(engine.active_order_up.queue_ahead_shares, 10.0)
+
+        # Trade 2: 20 shares @ 0.46 -> Consumes remaining 10 shares ahead, fills 10 shares of our order
+        feed.record_simulated_trade("UP", price=0.46, size=20.0)
+        fills2 = engine.check_fills(up_market_ask=0.50, down_market_ask=0.50, feed=feed)
+        self.assertEqual(len(fills2), 1)
+        self.assertEqual(fills2[0]["shares"], 10.0)
+        self.assertEqual(engine.active_order_up.remaining_shares, 10.0)
+        self.assertEqual(inventory.up.shares, 10.0)
 
 
 if __name__ == "__main__":

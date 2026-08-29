@@ -232,10 +232,11 @@ class PolymarketQuantEngine:
                     down_last_trade=self.polymarket_feed.down_last_trade,
                     up_best_bid=self.polymarket_feed.up_best_bid,
                     down_best_bid=self.polymarket_feed.down_best_bid,
+                    feed=self.polymarket_feed,
                 )
                 if filled:
                     for fill in filled:
-                        self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.0f} shs)"
+                        self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
                         inv_summary = self.inventory.get_summary()
                         self.recorder.log_trade(fill, inv_summary)
 
@@ -253,11 +254,12 @@ class PolymarketQuantEngine:
                     down_last_trade=feed.down_last_trade,
                     up_best_bid=feed.up_best_bid,
                     down_best_bid=feed.down_best_bid,
+                    feed=feed,
                 )
 
                 if filled:
                     for fill in filled:
-                        self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.0f} shs)"
+                        self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
                         inv_summary = self.inventory.get_summary()
                         self.recorder.log_trade(fill, inv_summary)
 
@@ -285,7 +287,7 @@ class PolymarketQuantEngine:
             if not self.config.dry_run:
                 await self.live_engine.cancel_all_orders()
             else:
-                self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+                self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False, feed=self.polymarket_feed)
             return
 
         # Route orders to active engine (Live CLOB or Paper Simulator)
@@ -302,6 +304,7 @@ class PolymarketQuantEngine:
                 quote_down=self.current_quotes["quote_down"],
                 allow_up=self.current_quotes["allow_quote_up"],
                 allow_down=self.current_quotes["allow_quote_down"],
+                feed=self.polymarket_feed,
             )
 
     def render_dashboard(self) -> Table:
