@@ -269,11 +269,13 @@ async function checkExistingAuth() {
 
 function showLoginModal() {
     authModal.classList.remove("hidden");
+    authModal.style.display = "flex";
     refreshIcons();
 }
 
 function hideLoginModal() {
     authModal.classList.add("hidden");
+    authModal.style.display = "none";
     loginErrorMsg.classList.add("hidden");
 }
 
