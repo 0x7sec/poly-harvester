@@ -163,13 +163,19 @@
                         <i data-lucide="menu" class="icon-md"></i>
                         <span class="btn-sidebar-toggle-text">MENU</span>
                     </button>
-                    <div class="market-pill">
-                        <i data-lucide="activity" class="icon-sm text-cyan"></i>
-                        <span id="marketSlug">BTC 15M DURATION</span>
+                    
+                    <!-- Market & Timeframe Selector -->
+                    <div class="market-timeframe-pill font-mono" title="Prediction Contract Target Timeframe">
+                        <i data-lucide="activity" class="icon-xs text-cyan"></i>
+                        <span class="market-name font-bold">BTC</span>
+                        <select id="selectTimeframe" class="timeframe-select font-mono" title="Select Contract Timeframe">
+                            <option value="15M" selected>15M (Default)</option>
+                            <option value="5M">5M</option>
+                            <option value="1H">1H</option>
+                            <option value="24H">24H</option>
+                        </select>
                     </div>
-                </div>
 
-                <div class="nav-right">
                     <!-- Session Status & History Selector Pill -->
                     <div class="session-pill font-mono" id="sessionPill">
                         <span class="session-dot dot-standby" id="sessionStatusDot"></span>
@@ -192,19 +198,49 @@
                             <i data-lucide="square" class="icon-xs"></i> Stop
                         </button>
                     </div>
+                </div>
 
-                    <!-- Polymarket Geoblock Status Pill -->
-                    <div class="geo-pill font-mono" id="polyGeoPill" title="Polymarket Geoblock Compliance Status">
-                        <i data-lucide="globe" class="icon-sm text-cyan"></i>
-                        <span class="geo-label">GEO:</span>
-                        <strong class="geo-val text-green" id="polyGeoVal">CHECKING</strong>
+                <div class="nav-right">
+                    <!-- Compact Stack 1: Feeds Latency (Binance / Poly) -->
+                    <div class="top-stack-pill font-mono" title="Direct Reference & CLOB Latencies">
+                        <div class="top-stack-row">
+                            <i data-lucide="zap" class="icon-2xs text-yellow"></i>
+                            <span class="stack-label">BINANCE:</span>
+                            <strong class="text-yellow" id="binancePingVal">-- ms</strong>
+                        </div>
+                        <div class="top-stack-row">
+                            <i data-lucide="activity" class="icon-2xs text-purple"></i>
+                            <span class="stack-label">POLY:</span>
+                            <strong class="text-purple" id="polyPingVal">-- ms</strong>
+                        </div>
                     </div>
 
-                    <!-- Polymarket Rate Limits Token Bucket Pill -->
-                    <div class="rate-pill font-mono" id="polyRatePill" title="Polymarket CLOB Rate Limit Tokens (Standard Tier)">
-                        <i data-lucide="gauge" class="icon-sm text-purple"></i>
-                        <span class="rate-label">TOKENS:</span>
-                        <strong class="rate-val text-purple" id="polyRateVal">60/60</strong>
+                    <!-- Compact Stack 2: UI Ping & Stream Status -->
+                    <div class="top-stack-pill font-mono" title="Client UI Latency & Telemetry Stream">
+                        <div class="top-stack-row">
+                            <i data-lucide="radio" class="icon-2xs text-cyan"></i>
+                            <span class="stack-label">UI:</span>
+                            <span class="text-cyan font-bold" id="latencyValue">-- ms</span>
+                        </div>
+                        <div class="top-stack-row" id="wsStatus">
+                            <span class="status-dot-sm"></span>
+                            <span class="stack-label">STREAM:</span>
+                            <strong class="text-green" id="wsStatusText">ACTIVE</strong>
+                        </div>
+                    </div>
+
+                    <!-- Compact Stack 3: Geo & Rate Limit Tokens -->
+                    <div class="top-stack-pill font-mono" id="polyGeoPill" title="Polymarket Geoblock & Order Tokens">
+                        <div class="top-stack-row">
+                            <i data-lucide="globe" class="icon-2xs text-cyan"></i>
+                            <span class="stack-label">GEO:</span>
+                            <strong class="text-green" id="polyGeoVal">ELIGIBLE (PK)</strong>
+                        </div>
+                        <div class="top-stack-row">
+                            <i data-lucide="gauge" class="icon-2xs text-purple"></i>
+                            <span class="stack-label">TOKENS:</span>
+                            <strong class="text-purple" id="polyRateVal">60/60</strong>
+                        </div>
                     </div>
 
                     <!-- Live / Paper Mode Switcher Button -->
@@ -213,32 +249,6 @@
                         <span id="polyModeText">MODE: PAPER (SAFE)</span>
                         <i data-lucide="settings" class="icon-xs"></i>
                     </button>
-
-                    <!-- Ping to Binance -->
-                    <div class="ping-pill font-mono" id="binancePingPill" title="Binance Direct Feed Latency">
-                        <i data-lucide="zap" class="icon-sm text-yellow"></i>
-                        <span class="ping-label">BINANCE:</span>
-                        <strong class="ping-val text-yellow" id="binancePingVal">-- ms</strong>
-                    </div>
-
-                    <!-- Ping to Polymarket -->
-                    <div class="ping-pill font-mono" id="polyPingPill" title="Polymarket CLOB Feed Latency">
-                        <i data-lucide="activity" class="icon-sm text-purple"></i>
-                        <span class="ping-label">POLY:</span>
-                        <strong class="ping-val text-purple" id="polyPingVal">-- ms</strong>
-                    </div>
-
-                    <!-- Dashboard WS Latency -->
-                    <div class="latency-pill font-mono" id="latencyPill" title="Client UI Telemetry Latency">
-                        <i data-lucide="radio" class="icon-sm text-cyan"></i>
-                        <span class="ping-label">UI:</span>
-                        <span id="latencyValue">-- ms</span>
-                    </div>
-
-                    <div class="connection-status font-mono" id="wsStatus">
-                        <span class="status-dot"></span>
-                        <span id="wsStatusText">LIVE</span>
-                    </div>
                 </div>
             </header>
 

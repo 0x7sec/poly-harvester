@@ -1218,9 +1218,10 @@ svg.lucide, [data-lucide] {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 20px;
-    padding-right: 42px; /* Prevent text overlap with top-right close button */
+    margin-bottom: 24px;
     position: relative;
+    gap: 16px;
+    padding-right: 0;
 }
 
 .modal-header .brand-group {
@@ -1228,12 +1229,37 @@ svg.lucide, [data-lucide] {
     align-items: center;
     gap: 14px;
     flex: 1;
+    min-width: 0;
+}
+
+.modal-title-box {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.modal-header h3,
+.modal-title-box h3 {
+    font-size: 1.12rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: #ffffff;
+    margin: 0;
+    line-height: 1.2;
+}
+
+.modal-subtitle {
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.35;
+    white-space: normal;
 }
 
 .btn-modal-close {
-    position: absolute;
-    top: 20px;
-    right: 20px;
+    position: static;
+    flex-shrink: 0;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
@@ -1245,27 +1271,14 @@ svg.lucide, [data-lucide] {
     justify-content: center;
     cursor: pointer;
     transition: var(--transition);
-    z-index: 10;
+    align-self: flex-start;
 }
 
 .btn-modal-close:hover {
     color: #ffffff;
     background: rgba(239, 68, 68, 0.35);
     border-color: var(--accent-red);
-    transform: scale(1.08);
-}
-
-.modal-header h3 {
-    font-size: 1.1rem;
-    font-weight: 800;
-    letter-spacing: 0.5px;
-    color: #ffffff;
-}
-
-.modal-subtitle {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    margin-top: 4px;
+    transform: scale(1.06);
 }
 
 .demo-creds-banner {
@@ -1787,24 +1800,95 @@ svg.lucide, [data-lucide] {
    POLYMARKET LIVE SDK, GEOBLOCK & RATE LIMIT STYLES
    ========================================================================== */
 
-.geo-pill, .rate-pill {
+/* Compact Top Stack Widget Pills */
+.top-stack-pill {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--border-color);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.69rem;
+    line-height: 1.2;
+    min-width: 95px;
+    transition: var(--transition);
+}
+
+.top-stack-pill:hover {
+    border-color: rgba(6, 182, 212, 0.4);
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.top-stack-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+}
+
+.stack-label {
+    color: var(--text-muted);
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+
+.icon-2xs {
+    width: 11px;
+    height: 11px;
+    flex-shrink: 0;
+}
+
+.status-dot-sm {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 6px var(--accent-green);
+    animation: pulse 1.5s infinite;
+    display: inline-block;
+}
+
+/* Market & Timeframe Selector Pill */
+.market-timeframe-pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid var(--border-color);
-    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(6, 182, 212, 0.35);
+    padding: 4px 8px;
     border-radius: var(--radius-sm);
-    font-size: 0.72rem;
+    font-size: 0.74rem;
 }
 
-.geo-pill.blocked {
-    border-color: rgba(239, 68, 68, 0.5);
-    background: rgba(239, 68, 68, 0.1);
+.market-name {
+    color: var(--accent-cyan);
+    letter-spacing: 0.5px;
 }
 
-.geo-pill.blocked .geo-val {
-    color: var(--accent-red) !important;
+.timeframe-select {
+    background: rgba(6, 182, 212, 0.1);
+    border: 1px solid rgba(6, 182, 212, 0.3);
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.70rem;
+    font-weight: 700;
+    cursor: pointer;
+    outline: none;
+    transition: var(--transition);
+}
+
+.timeframe-select:focus,
+.timeframe-select:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.2);
+}
+
+.timeframe-select option {
+    background: #111827;
+    color: #ffffff;
 }
 
 /* Session Controls & Switcher */

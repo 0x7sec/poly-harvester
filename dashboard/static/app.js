@@ -603,20 +603,21 @@ function updateDashboard(data) {
         // Geoblock Pill & Card Badge
         const geo = sdk.geoblock || {};
         const isBlocked = geo.blocked === true;
+        const countryCode = (geo.country && geo.country !== "Unknown") ? geo.country : "PK";
         const geoVal = document.getElementById("polyGeoVal");
         const geoPill = document.getElementById("polyGeoPill");
         const geoBadge = document.getElementById("polyGeoBadge");
 
         if (geoVal) {
-            geoVal.textContent = isBlocked ? `BLOCKED (${geo.country || 'US'})` : `ELIGIBLE (${geo.country || 'OK'})`;
-            geoVal.className = isBlocked ? "geo-val text-pink font-bold" : "geo-val text-green font-bold";
+            geoVal.textContent = isBlocked ? `BLOCKED (${countryCode})` : `ELIGIBLE (${countryCode})`;
+            geoVal.className = isBlocked ? "text-pink font-bold" : "text-green font-bold";
         }
         if (geoPill) {
             if (isBlocked) geoPill.classList.add("blocked");
             else geoPill.classList.remove("blocked");
         }
         if (geoBadge) {
-            geoBadge.textContent = isBlocked ? `RESTRICTED (${geo.country})` : `ELIGIBLE (${geo.country})`;
+            geoBadge.textContent = isBlocked ? `RESTRICTED (${countryCode})` : `ELIGIBLE (${countryCode})`;
             geoBadge.className = isBlocked ? "metric-badge font-mono text-pink" : "metric-badge font-mono badge-active";
         }
 
@@ -1726,6 +1727,14 @@ if (startSessionForm) {
         } catch (err) {
             showToast("Network error launching session.", "error");
         }
+    });
+}
+
+const selectTimeframe = document.getElementById("selectTimeframe");
+if (selectTimeframe) {
+    selectTimeframe.addEventListener("change", (e) => {
+        const tf = e.target.value;
+        showToast(`Target Contract timeframe set to BTC ${tf} (Default: 15M)`, "info");
     });
 }
 
