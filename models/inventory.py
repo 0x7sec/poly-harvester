@@ -62,14 +62,48 @@ class InventoryManager:
         self.total_fees_paid: float = 0.0
         self.is_stop_loss_triggered: bool = False
 
+        self.session_id: str = "GLOBAL"
+        self.allocated_capital: float = 300.0
+
         if self.db is not None:
             self.load_persisted_state()
+
+    def reset_for_session(self, session_id: str, allocated_capital: float = 300.0):
+        """Resets active inventory and session metrics for a brand new isolated session."""
+        self.session_id = session_id
+        self.allocated_capital = max(10.0, min(300.0, float(allocated_capital)))
+        self.up = Position()
+        self.down = Position()
+        self.total_complete_sets_merged = 0.0
+        self.realized_arbitrage_pnl = 0.0
+        self.total_fees_paid = 0.0
+        self.is_stop_loss_triggered = False
+        if self.db:
+            self.db.save_position("UP", 0.0, 0.0, 0.0)
+            self.db.save_position("DOWN", 0.0, 0.0, 0.0)
+        logger.info(f"[SESSION INITIALIZED] New session {session_id} started with ${self.allocated_capital:.2f} capital.")
 
     def load_persisted_state(self):
         """Restores positions, cumulative PnL, and merged set counts from SQLite database."""
         if not self.db:
             return
         try:
+            # Check if active session exists in DB
+            active_sess = self.db.get_active_session()
+            if active_sess:
+                self.session_id = active_sess["session_id"]
+                self.allocated_capital = active_sess.get("allocated_capital", 300.0)
+                # Load stats specifically for this active session
+                analytics = self.db.get_session_analytics(self.session_id)
+                self.total_complete_sets_merged = analytics.get("total_complete_sets_merged", 0.0)
+                self.realized_arbitrage_pnl = analytics.get("realized_arbitrage_pnl", 0.0)
+                self.total_fees_paid = analytics.get("total_fees_paid", 0.0)
+            else:
+                analytics = self.db.get_analytics()
+                self.total_complete_sets_merged = analytics.get("total_complete_sets_merged", 0.0)
+                self.realized_arbitrage_pnl = analytics.get("realized_arbitrage_pnl", 0.0)
+                self.total_fees_paid = analytics.get("total_fees_paid", 0.0)
+
             positions = self.db.load_positions()
             up_data = positions.get("UP", {})
             down_data = positions.get("DOWN", {})
@@ -82,14 +116,8 @@ class InventoryManager:
             self.down.avg_cost = down_data.get("avg_cost", 0.0)
             self.down.total_spent = down_data.get("total_spent", 0.0)
 
-            # Load cumulative metrics
-            analytics = self.db.get_analytics()
-            self.total_complete_sets_merged = analytics.get("total_complete_sets_merged", 0.0)
-            self.realized_arbitrage_pnl = analytics.get("realized_arbitrage_pnl", 0.0)
-            self.total_fees_paid = analytics.get("total_fees_paid", 0.0)
-
             logger.info(
-                f"[DATABASE RESTORED] UP: {self.up.shares} shs (@${self.up.avg_cost:.3f}) | "
+                f"[DATABASE RESTORED] Session: {self.session_id} | UP: {self.up.shares} shs (@${self.up.avg_cost:.3f}) | "
                 f"DOWN: {self.down.shares} shs (@${self.down.avg_cost:.3f}) | "
                 f"Merged Sets: {self.total_complete_sets_merged} | PnL: +${self.realized_arbitrage_pnl:.2f}"
             )
@@ -158,6 +186,7 @@ class InventoryManager:
                     combined_cost=combined_cost_per_set,
                     profit_locked=total_profit_locked,
                     cumulative_pnl=self.realized_arbitrage_pnl,
+                    session_id=self.session_id,
                 )
 
     def _check_stop_loss(self):

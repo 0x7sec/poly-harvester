@@ -189,8 +189,15 @@ Per the official [Polymarket Geographic Restrictions](https://docs.polymarket.co
 * **Daily Stop Loss Circuit Breaker**: -$25.00 daily loss trigger cancels all open limit bids instantly.
 * **Complete-Set Arbitrage Merge**: Calls `merge_multiple_positions` to automatically redeem UP + DOWN pairs into $1.00 USDC locked profit.
 
-### 4. Live CLOB vs Paper Simulation Modes
-* **Paper Trading Mode (Default)**: Simulates order fills against live Binance & Polymarket books with zero capital risk.
+### 4. Isolated Trading Sessions & Dynamic Capital Allocation
+* **Zero Auto-Trading on Boot**: Poly-Harvester boots in **STANDBY** state. High-speed Binance and Polymarket feeds stream market data, implied probabilities, and book metrics 24/7 without placing orders until a session is explicitly started.
+* **Configurable Trading Amount**: When launching a session, operators configure **Allocated Bankroll Capital** ($20 to $300 max) and **Order Size** (shares per leg).
+* **Complete Session Data Isolation**: The dashboard, order history, complete-sets ledger, and performance analytics display only the active session's data by default.
+* **Historical Session Switcher**: Operators can dynamically switch views between **Active Session (Live)**, **Historical Past Sessions** (loading exact snapshot metrics), and **All-Time Aggregate History**.
+* **Interactive Session Lifecycle**: Start, Pause, Resume, and Stop & Archive sessions with single-click UI controls or REST/MCP APIs.
+
+### 5. Live CLOB vs 99% Accurate Paper Simulation
+* **Paper Trading Mode (Default)**: Emulates real CLOB order fills against live market asks and printed CLOB trade ticks with $\ge 50\text{ms}$ in-flight network latency guards and strict bankroll limits.
 * **Live CLOB Execution Mode**: Connects directly to Polymarket CLOB with Polygon EIP-712 order signing. Configurable dynamically in the **Polymarket Live SDK** modal with safety confirmation dialogs.
 
 ---
@@ -202,8 +209,9 @@ Per the official [Polymarket Geographic Restrictions](https://docs.polymarket.co
 python main.py
 ```
 
-### 2. Access Dashboard
+### 2. Access Dashboard & Start Trading
 1. Open [http://localhost:8443](http://localhost:8443).
 2. Login with default credentials (`admin` / `polyharvester2026`).
-3. Click **Polymarket Live SDK** in the sidebar to configure wallet keys, test geoblock status, or toggle live trading!
+3. Click **`Start Trading`** in the top navigation bar to launch an isolated session with your preferred capital bankroll ($20–$300) and execution mode!
+4. Use the **Session Switcher** dropdown to review past runs, inspect fills, and track complete-set arbitrage profits.
 

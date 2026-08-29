@@ -136,6 +136,7 @@ class PaperTradingEngine:
                                 self.inventory.up.shares,
                                 self.inventory.down.shares,
                                 "PAPER_LIVE",
+                                session_id=self.inventory.session_id,
                             )
 
                         filled_events.append(event)
@@ -149,7 +150,7 @@ class PaperTradingEngine:
         if self.active_order_down and self.active_order_down.is_active:
             if now - self.active_order_down.created_at >= 0.05:
                 order_cost = self.active_order_down.price * self.active_order_down.shares
-                if current_spent + order_cost <= 300.0:
+                if current_spent + order_cost <= self.inventory.allocated_capital:
                     if (down_market_ask > 0 and down_market_ask <= self.active_order_down.price) or (
                         down_last_trade > 0 and down_last_trade <= self.active_order_down.price
                     ):
@@ -174,6 +175,7 @@ class PaperTradingEngine:
                                 self.inventory.up.shares,
                                 self.inventory.down.shares,
                                 "PAPER_LIVE",
+                                session_id=self.inventory.session_id,
                             )
 
                         filled_events.append(event)

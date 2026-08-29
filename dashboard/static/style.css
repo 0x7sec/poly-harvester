@@ -1807,6 +1807,94 @@ svg.lucide, [data-lucide] {
     color: var(--accent-red) !important;
 }
 
+/* Session Controls & Switcher */
+.session-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--border-color);
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 0.72rem;
+}
+
+.session-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.session-dot.dot-active {
+    background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+    animation: pulse 1.5s infinite;
+}
+
+.session-dot.dot-standby {
+    background: var(--accent-yellow);
+    box-shadow: 0 0 8px var(--accent-yellow);
+}
+
+.session-dot.dot-stopped {
+    background: var(--text-muted);
+}
+
+.session-status-text {
+    letter-spacing: 0.5px;
+}
+
+.session-select {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 0.70rem;
+    outline: none;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.session-select:focus,
+.session-select:hover {
+    border-color: var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.1);
+}
+
+.session-select option {
+    background: #111827;
+    color: #ffffff;
+}
+
+.session-btn-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-danger-outline {
+    background: transparent;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: var(--accent-pink);
+    border-radius: var(--radius-sm);
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--transition);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-danger-outline:hover {
+    background: rgba(239, 68, 68, 0.18);
+    border-color: var(--accent-pink);
+    transform: scale(1.02);
+}
+
 .btn-mode-toggle {
     display: inline-flex;
     align-items: center;

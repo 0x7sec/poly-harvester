@@ -142,6 +142,14 @@ class DashboardServer:
         self.app.router.add_get("/api/complete_sets", self._handle_complete_sets)
         self.app.router.add_get("/api/analytics", self._handle_analytics)
 
+        # Session Management & Isolated Runs
+        self.app.router.add_post("/api/sessions/start", self._handle_session_start)
+        self.app.router.add_post("/api/sessions/pause", self._handle_session_pause)
+        self.app.router.add_post("/api/sessions/resume", self._handle_session_resume)
+        self.app.router.add_post("/api/sessions/stop", self._handle_session_stop)
+        self.app.router.add_get("/api/sessions/list", self._handle_session_list)
+        self.app.router.add_get("/api/sessions/{id}", self._handle_session_details)
+
         # Dynamic Engine Controls
         self.app.router.add_post("/api/control/pause", self._handle_pause)
         self.app.router.add_post("/api/control/resume", self._handle_resume)
@@ -190,7 +198,7 @@ class DashboardServer:
             if hasattr(self.engine, "db") and self.engine.db:
                 user = self.engine.db.authenticate_user(username, password)
                 if user:
-                    token = self.engine.db.create_session(username=user["username"], role=user["role"])
+                    token = self.engine.db.create_auth_session(username=user["username"], role=user["role"])
                     response = web.json_response({
                         "success": True,
                         "token": token,
@@ -289,13 +297,16 @@ class DashboardServer:
 
         limit = int(request.query.get("limit", 50))
         offset = int(request.query.get("offset", 0))
+        session_id = request.query.get("session_id")
+        if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
+            session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
-            trades = self.engine.db.get_recent_trades(limit=limit, offset=offset)
+            trades = self.engine.db.get_session_trades(session_id=session_id, limit=limit, offset=offset)
         else:
             trades = self.engine.paper_engine.fill_history[-limit:]
 
-        return web.json_response({"trades": trades})
+        return web.json_response({"trades": trades, "session_id": session_id or "ALL"})
 
     async def _handle_complete_sets(self, request: web.Request):
         if not self._verify_auth(request):
@@ -303,20 +314,27 @@ class DashboardServer:
 
         limit = int(request.query.get("limit", 50))
         offset = int(request.query.get("offset", 0))
+        session_id = request.query.get("session_id")
+        if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
+            session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
-            sets = self.engine.db.get_complete_sets(limit=limit, offset=offset)
+            sets = self.engine.db.get_session_complete_sets(session_id=session_id, limit=limit, offset=offset)
         else:
             sets = []
 
-        return web.json_response({"complete_sets": sets})
+        return web.json_response({"complete_sets": sets, "session_id": session_id or "ALL"})
 
     async def _handle_analytics(self, request: web.Request):
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
 
+        session_id = request.query.get("session_id")
+        if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
+            session_id = self.engine.current_session_id
+
         if hasattr(self.engine, "db") and self.engine.db:
-            analytics = self.engine.db.get_analytics()
+            analytics = self.engine.db.get_session_analytics(session_id=session_id)
         else:
             inv = self.engine.inventory.get_summary()
             analytics = {
@@ -328,28 +346,88 @@ class DashboardServer:
 
         return web.json_response(analytics)
 
-    async def _handle_pause(self, request: web.Request):
+    # ================= Session Management Handlers =================
+
+    async def _handle_session_start(self, request: web.Request):
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            body = await request.json() if request.can_read_body else {}
+            name = body.get("name", "").strip()
+            mode = body.get("mode", "PAPER").upper()
+            allocated_capital = float(body.get("allocated_capital", 300.0))
+            order_size_shares = float(body.get("order_size_shares", 20.0))
+            notes = body.get("notes", "").strip()
 
-        self.engine.inventory.is_stop_loss_triggered = True
-        self.engine.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+            sess = self.engine.start_session(
+                name=name,
+                mode=mode,
+                allocated_capital=allocated_capital,
+                order_size_shares=order_size_shares,
+                notes=notes,
+            )
 
+            if hasattr(self.engine, "cache") and self.engine.cache:
+                self.engine.cache.set_bot_status(is_paused=False, is_stop_loss=False, reason=f"Session started: {sess['session_id']}")
+
+            return web.json_response({
+                "status": "SUCCESS",
+                "session": sess,
+                "message": f"Trading session {sess['session_id']} started successfully.",
+            })
+        except Exception as e:
+            return web.json_response({"status": "ERROR", "error": str(e)}, status=400)
+
+    async def _handle_session_pause(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        sess = self.engine.pause_trading()
         if hasattr(self.engine, "cache") and self.engine.cache:
-            self.engine.cache.set_bot_status(is_paused=True, is_stop_loss=True, reason="User paused via dashboard")
+            self.engine.cache.set_bot_status(is_paused=True, is_stop_loss=False, reason="User paused session")
+        return web.json_response({"status": "SUCCESS", "session": sess, "message": "Session paused."})
 
-        return web.json_response({"success": True, "message": "Quoting paused."})
+    async def _handle_session_resume(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        sess = self.engine.resume_trading()
+        if hasattr(self.engine, "cache") and self.engine.cache:
+            self.engine.cache.set_bot_status(is_paused=False, is_stop_loss=False, reason="User resumed session")
+        return web.json_response({"status": "SUCCESS", "session": sess, "message": "Session resumed."})
+
+    async def _handle_session_stop(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        sess = self.engine.stop_session()
+        if hasattr(self.engine, "cache") and self.engine.cache:
+            self.engine.cache.set_bot_status(is_paused=True, is_stop_loss=False, reason="User stopped session")
+        return web.json_response({"status": "SUCCESS", "session": sess, "message": "Session stopped and archived."})
+
+    async def _handle_session_list(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        limit = int(request.query.get("limit", 50))
+        sessions = self.engine.db.list_sessions(limit=limit) if hasattr(self.engine, "db") and self.engine.db else []
+        active = self.engine.db.get_active_session() if hasattr(self.engine, "db") and self.engine.db else None
+        return web.json_response({
+            "sessions": sessions,
+            "active_session": active,
+            "current_session_id": getattr(self.engine, "current_session_id", "STANDBY"),
+            "is_trading_active": getattr(self.engine, "is_trading_active", False),
+        })
+
+    async def _handle_session_details(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        sess_id = request.match_info.get("id", "")
+        sess = self.engine.db.get_session_by_id(sess_id) if hasattr(self.engine, "db") and self.engine.db else None
+        analytics = self.engine.db.get_session_analytics(sess_id) if hasattr(self.engine, "db") and self.engine.db else {}
+        return web.json_response({"session": sess, "analytics": analytics})
+
+    async def _handle_pause(self, request: web.Request):
+        return await self._handle_session_pause(request)
 
     async def _handle_resume(self, request: web.Request):
-        if not self._verify_auth(request):
-            return web.json_response({"error": "Unauthorized"}, status=401)
-
-        self.engine.inventory.is_stop_loss_triggered = False
-
-        if hasattr(self.engine, "cache") and self.engine.cache:
-            self.engine.cache.set_bot_status(is_paused=False, is_stop_loss=False, reason="User resumed via dashboard")
-
-        return web.json_response({"success": True, "message": "Quoting resumed."})
+        return await self._handle_session_resume(request)
 
     async def _handle_emergency(self, request: web.Request):
         if not self._verify_auth(request):
@@ -845,13 +923,34 @@ class DashboardServer:
                 "velocity": bn_vel
             })
 
-        analytics = {}
+        active_sess = self.engine.db.get_active_session() if hasattr(self.engine, "db") and self.engine.db else None
+        current_sess_id = getattr(self.engine, "current_session_id", "STANDBY")
+        is_trading = getattr(self.engine, "is_trading_active", False)
+
+        sess_analytics = {}
         if hasattr(self.engine, "db") and self.engine.db:
-            analytics = self.engine.db.get_analytics()
+            sess_analytics = self.engine.db.get_session_analytics(current_sess_id if current_sess_id != "STANDBY" else None)
+        else:
+            sess_analytics = {
+                "total_trades": len(self.engine.paper_engine.fill_history),
+                "total_complete_sets_merged": inv["complete_sets_merged"],
+                "realized_arbitrage_pnl": inv["realized_arb_pnl"],
+                "net_pnl": inv["net_pnl"],
+            }
 
         return {
             "timestamp": time.time(),
             "uptime_seconds": int(time.time() - self._start_time),
+            "session": {
+                "session_id": current_sess_id,
+                "is_trading_active": is_trading,
+                "name": active_sess.get("name") if active_sess else "Standby (Not Trading)",
+                "mode": active_sess.get("mode", "PAPER") if active_sess else ("PAPER" if self.engine.config.dry_run else "LIVE"),
+                "allocated_capital": getattr(self.engine.inventory, "allocated_capital", 300.0),
+                "order_size_shares": self.engine.config.order_size_shares,
+                "start_time": active_sess.get("start_time") if active_sess else None,
+                "status": "ACTIVE" if is_trading else ("PAUSED" if active_sess else "STANDBY"),
+            },
             "binance": {
                 "symbol": self.engine.config.binance_symbol,
                 "price": bn_price,
@@ -874,14 +973,14 @@ class DashboardServer:
             },
             "live_trading_active": not self.engine.config.dry_run,
             "quotes": {
-                "quote_up": quotes.get("quote_up", 0.0),
-                "quote_down": quotes.get("quote_down", 0.0),
+                "quote_up": quotes.get("quote_up", 0.0) if is_trading else 0.0,
+                "quote_down": quotes.get("quote_down", 0.0) if is_trading else 0.0,
                 "combined_cost": quotes.get("projected_cost", 0.0),
                 "edge_pct": round(quotes.get("projected_edge", 0.0) * 100.0, 2),
                 "max_cost_limit": self.engine.config.max_combined_cost,
             },
             "inventory": inv,
-            "analytics": analytics,
+            "analytics": sess_analytics,
             "latency": {
                 "binance_ms": getattr(self.engine.binance_feed, "latency_ms", 24),
                 "polymarket_ms": getattr(self.engine.polymarket_feed, "latency_ms", 38),

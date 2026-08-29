@@ -195,6 +195,45 @@ class DatabaseManager:
                     """
                 )
 
+                # 10. Trading Sessions Table for Isolated Session Runs
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS trading_sessions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT UNIQUE NOT NULL,
+                        name TEXT NOT NULL,
+                        mode TEXT NOT NULL DEFAULT 'PAPER',
+                        allocated_capital REAL NOT NULL DEFAULT 300.0,
+                        order_size_shares REAL NOT NULL DEFAULT 20.0,
+                        status TEXT NOT NULL DEFAULT 'ACTIVE',
+                        start_time REAL NOT NULL,
+                        start_time_iso TEXT NOT NULL,
+                        end_time REAL,
+                        end_time_iso TEXT,
+                        initial_balance REAL DEFAULT 300.0,
+                        realized_pnl REAL DEFAULT 0.0,
+                        total_trades INTEGER DEFAULT 0,
+                        total_volume REAL DEFAULT 0.0,
+                        sets_merged REAL DEFAULT 0.0,
+                        notes TEXT DEFAULT ''
+                    )
+                    """
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_status ON trading_sessions(status);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_start ON trading_sessions(start_time);")
+
+                # Schema Migrations: Add session_id to trades and complete_sets if absent
+                try:
+                    cursor.execute("ALTER TABLE trades ADD COLUMN session_id TEXT NOT NULL DEFAULT 'GLOBAL'")
+                except Exception:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE complete_sets ADD COLUMN session_id TEXT NOT NULL DEFAULT 'GLOBAL'")
+                except Exception:
+                    pass
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_session ON trades(session_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sets_session ON complete_sets(session_id);")
+
                 # Seed initial position rows if absent
                 for side in ("UP", "DOWN"):
                     cursor.execute(
@@ -284,7 +323,7 @@ class DatabaseManager:
                     }
                 return None
 
-    def create_session(self, username: str, role: str = "admin", duration_seconds: int = 86400) -> str:
+    def create_auth_session(self, username: str, role: str = "admin", duration_seconds: int = 86400) -> str:
         """Creates a secure session token with expiration."""
         token = secrets.token_urlsafe(32)
         now = time.time()
@@ -443,6 +482,7 @@ class DatabaseManager:
         up_shares_after: float = 0.0,
         down_shares_after: float = 0.0,
         execution_type: str = "PAPER",
+        session_id: str = "GLOBAL",
     ) -> int:
         """Appends an executed trade fill to the SQLite database."""
         now = trade_event.get("timestamp", time.time())
@@ -454,8 +494,8 @@ class DatabaseManager:
                     """
                     INSERT INTO trades (
                         timestamp, time_iso, order_id, side, price, shares, cost_usd, fee_usd,
-                        execution_type, up_shares_after, down_shares_after
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        execution_type, up_shares_after, down_shares_after, session_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         now,
@@ -469,6 +509,7 @@ class DatabaseManager:
                         execution_type,
                         float(up_shares_after),
                         float(down_shares_after),
+                        session_id,
                     ),
                 )
                 conn.commit()
@@ -482,6 +523,7 @@ class DatabaseManager:
         combined_cost: float,
         profit_locked: float,
         cumulative_pnl: float,
+        session_id: str = "GLOBAL",
     ) -> int:
         """Appends a complete-set merge and locked profit record."""
         now = time.time()
@@ -493,8 +535,8 @@ class DatabaseManager:
                     """
                     INSERT INTO complete_sets (
                         timestamp, time_iso, sets_merged, up_avg_cost, down_avg_cost,
-                        combined_cost, profit_locked, cumulative_pnl
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        combined_cost, profit_locked, cumulative_pnl, session_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         now,
@@ -505,6 +547,7 @@ class DatabaseManager:
                         float(combined_cost),
                         float(profit_locked),
                         float(cumulative_pnl),
+                        session_id,
                     ),
                 )
                 conn.commit()
@@ -904,3 +947,277 @@ class DatabaseManager:
                         "updated_at": 0.0,
                     }
                 return dict(row)
+
+    # =========================================================================
+    # TRADING SESSIONS MANAGEMENT (ISOLATED RUNS & CONTROLS)
+    # =========================================================================
+
+    def create_session(
+        self,
+        name: str = "",
+        mode: str = "PAPER",
+        allocated_capital: float = 300.0,
+        order_size_shares: float = 20.0,
+        notes: str = "",
+    ) -> dict:
+        """Creates a new active trading session, stopping any prior active sessions."""
+        now = time.time()
+        time_iso = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        sess_num = int(now) % 100000
+        sess_id = f"SESS-{time.strftime('%Y%m%d')}-{sess_num:05d}"
+        display_name = name.strip() if name.strip() else f"Session #{sess_num:05d} ({mode.upper()})"
+        cap = max(10.0, min(300.0, float(allocated_capital)))
+        order_sz = max(1.0, min(100.0, float(order_size_shares)))
+
+        with self._lock:
+            with self._get_connection() as conn:
+                # Stop existing active sessions
+                conn.execute(
+                    """
+                    UPDATE trading_sessions
+                    SET status = 'STOPPED', end_time = ?, end_time_iso = ?
+                    WHERE status = 'ACTIVE'
+                    """,
+                    (now, time_iso),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO trading_sessions (
+                        session_id, name, mode, allocated_capital, order_size_shares,
+                        status, start_time, start_time_iso, initial_balance, notes
+                    ) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, ?)
+                    """,
+                    (sess_id, display_name, mode.upper(), cap, order_sz, now, time_iso, cap, notes),
+                )
+                conn.commit()
+
+        return self.get_session_by_id(sess_id)
+
+    def get_active_session(self) -> Optional[dict]:
+        """Returns the currently active trading session if one exists."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT * FROM trading_sessions
+                    WHERE status = 'ACTIVE'
+                    ORDER BY id DESC LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
+    def get_session_by_id(self, session_id: str) -> Optional[dict]:
+        """Returns session record by session_id."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM trading_sessions WHERE session_id = ?", (session_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
+    def list_sessions(self, limit: int = 50) -> List[dict]:
+        """Returns list of historical trading sessions."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT * FROM trading_sessions
+                    ORDER BY id DESC LIMIT ?
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    def stop_session(self, session_id: Optional[str] = None) -> Optional[dict]:
+        """Stops the current or specified active session and finalizes its stats."""
+        now = time.time()
+        time_iso = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        target_sess = session_id or (self.get_active_session() or {}).get("session_id")
+        if not target_sess:
+            return None
+
+        analytics = self.get_session_analytics(target_sess)
+
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    UPDATE trading_sessions
+                    SET status = 'STOPPED', end_time = ?, end_time_iso = ?,
+                        realized_pnl = ?, total_trades = ?, total_volume = ?, sets_merged = ?
+                    WHERE session_id = ?
+                    """,
+                    (
+                        now,
+                        time_iso,
+                        analytics.get("realized_arbitrage_pnl", 0.0),
+                        analytics.get("total_trades", 0),
+                        analytics.get("total_volume_usd", 0.0),
+                        analytics.get("total_complete_sets_merged", 0.0),
+                        target_sess,
+                    ),
+                )
+                conn.commit()
+
+        return self.get_session_by_id(target_sess)
+
+    def pause_session(self, session_id: Optional[str] = None) -> Optional[dict]:
+        """Sets an active session to PAUSED state."""
+        target_sess = session_id or (self.get_active_session() or {}).get("session_id")
+        if not target_sess:
+            return None
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE trading_sessions SET status = 'PAUSED' WHERE session_id = ?",
+                    (target_sess,),
+                )
+                conn.commit()
+        return self.get_session_by_id(target_sess)
+
+    def resume_session(self, session_id: Optional[str] = None) -> Optional[dict]:
+        """Resumes a PAUSED session to ACTIVE state."""
+        target_sess = session_id or (self.get_active_session() or {}).get("session_id")
+        if not target_sess:
+            return None
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE trading_sessions SET status = 'ACTIVE' WHERE session_id = ?",
+                    (target_sess,),
+                )
+                conn.commit()
+        return self.get_session_by_id(target_sess)
+
+    def get_session_trades(self, session_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[dict]:
+        """Retrieves trades filtered by session_id (or all if session_id is None/'ALL')."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if session_id and session_id.upper() != "ALL":
+                    cursor.execute(
+                        """
+                        SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
+                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id
+                        FROM trades
+                        WHERE session_id = ?
+                        ORDER BY id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (session_id, limit, offset),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
+                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id
+                        FROM trades
+                        ORDER BY id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (limit, offset),
+                    )
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    def get_session_complete_sets(self, session_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[dict]:
+        """Retrieves complete sets filtered by session_id."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if session_id and session_id.upper() != "ALL":
+                    cursor.execute(
+                        """
+                        SELECT id, timestamp, time_iso, sets_merged, up_avg_cost, down_avg_cost,
+                               combined_cost, profit_locked, cumulative_pnl, session_id
+                        FROM complete_sets
+                        WHERE session_id = ?
+                        ORDER BY id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (session_id, limit, offset),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT id, timestamp, time_iso, sets_merged, up_avg_cost, down_avg_cost,
+                               combined_cost, profit_locked, cumulative_pnl, session_id
+                        FROM complete_sets
+                        ORDER BY id DESC
+                        LIMIT ? OFFSET ?
+                        """,
+                        (limit, offset),
+                    )
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    def get_session_analytics(self, session_id: Optional[str] = None) -> dict:
+        """Calculates performance analytics specifically for a session (or aggregate if None/'ALL')."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                filter_clause = "WHERE session_id = ?" if (session_id and session_id.upper() != "ALL") else ""
+                params = (session_id,) if (session_id and session_id.upper() != "ALL") else ()
+
+                cursor.execute(
+                    f"SELECT COUNT(*), COALESCE(SUM(cost_usd), 0.0), COALESCE(SUM(fee_usd), 0.0) FROM trades {filter_clause}",
+                    params,
+                )
+                row_t = cursor.fetchone()
+                total_trades = row_t[0]
+                total_volume_usd = float(row_t[1])
+                total_fees = float(row_t[2])
+
+                if filter_clause:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM trades WHERE UPPER(side) = 'UP' AND session_id = ?",
+                        params,
+                    )
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM trades WHERE UPPER(side) = 'UP'")
+                up_trades = cursor.fetchone()[0]
+
+                if filter_clause:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM trades WHERE UPPER(side) = 'DOWN' AND session_id = ?",
+                        params,
+                    )
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM trades WHERE UPPER(side) = 'DOWN'")
+                down_trades = cursor.fetchone()[0]
+
+                cursor.execute(
+                    f"""
+                    SELECT COUNT(*), COALESCE(SUM(sets_merged), 0.0), COALESCE(SUM(profit_locked), 0.0),
+                           COALESCE(AVG(combined_cost), 0.0)
+                    FROM complete_sets {filter_clause}
+                    """,
+                    params,
+                )
+                row_s = cursor.fetchone()
+                total_merge_events = row_s[0]
+                total_sets_merged = float(row_s[1])
+                total_profit_locked = float(row_s[2])
+                avg_combined_cost = float(row_s[3])
+
+                net_pnl = total_profit_locked - total_fees
+                profit_margin = ((1.00 - avg_combined_cost) * 100.0) if avg_combined_cost > 0 else 0.0
+
+                return {
+                    "session_id": session_id or "ALL",
+                    "total_trades": total_trades,
+                    "up_trades_count": up_trades,
+                    "down_trades_count": down_trades,
+                    "total_volume_usd": round(total_volume_usd, 2),
+                    "total_fees_paid": round(total_fees, 2),
+                    "total_merge_events": total_merge_events,
+                    "total_complete_sets_merged": round(total_sets_merged, 1),
+                    "realized_arbitrage_pnl": round(total_profit_locked, 2),
+                    "net_pnl": round(net_pnl, 2),
+                    "avg_combined_cost": round(avg_combined_cost, 3),
+                    "profit_margin_pct": round(profit_margin, 2),
+                }

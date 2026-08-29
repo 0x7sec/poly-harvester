@@ -130,6 +130,85 @@ class PolymarketQuantEngine:
         self.last_fill_event: str = "None"
         self._running: bool = False
 
+        # Session & Trading Controls (Default to False: Do not trade automatically without user start)
+        self.is_trading_active: bool = False
+        active_sess = self.db.get_active_session() if self.db else None
+        if active_sess and active_sess.get("status") == "ACTIVE":
+            # If an existing session was already ACTIVE in database, keep it ready but paused until confirmed
+            self.current_session_id = active_sess["session_id"]
+        else:
+            self.current_session_id = "STANDBY"
+
+    def start_session(
+        self,
+        name: str = "",
+        mode: str = "PAPER",
+        allocated_capital: float = 300.0,
+        order_size_shares: float = 20.0,
+        notes: str = "",
+    ) -> dict:
+        """Starts a new isolated trading session with user-specified capital and mode."""
+        is_paper = (mode.upper() == "PAPER")
+        self.config.dry_run = is_paper
+        self.config.order_size_shares = float(order_size_shares)
+        self.paper_engine.order_size_shares = float(order_size_shares)
+
+        if self.db:
+            sess = self.db.create_session(
+                name=name,
+                mode=mode,
+                allocated_capital=allocated_capital,
+                order_size_shares=order_size_shares,
+                notes=notes,
+            )
+            self.current_session_id = sess["session_id"]
+        else:
+            self.current_session_id = f"SESS-{int(time.time())}"
+            sess = {
+                "session_id": self.current_session_id,
+                "name": name or "Local Session",
+                "mode": mode,
+                "allocated_capital": allocated_capital,
+                "order_size_shares": order_size_shares,
+                "status": "ACTIVE",
+            }
+
+        # Initialize inventory state fresh for this session
+        self.inventory.reset_for_session(self.current_session_id, allocated_capital)
+        self.is_trading_active = True
+        logger.info(f"🚀 Trading Session '{self.current_session_id}' STARTED. Mode: {mode.upper()}, Capital: ${allocated_capital:.2f}")
+        return sess
+
+    def pause_trading(self) -> Optional[dict]:
+        """Pauses active quoting and fills."""
+        self.is_trading_active = False
+        self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+        sess = None
+        if self.db and self.current_session_id != "STANDBY":
+            sess = self.db.pause_session(self.current_session_id)
+        logger.info(f"⏸ Trading Session PAUSED.")
+        return sess
+
+    def resume_trading(self) -> Optional[dict]:
+        """Resumes quoting and fills for active session."""
+        self.is_trading_active = True
+        sess = None
+        if self.db and self.current_session_id != "STANDBY":
+            sess = self.db.resume_session(self.current_session_id)
+        logger.info(f"▶ Trading Session RESUMED.")
+        return sess
+
+    def stop_session(self) -> Optional[dict]:
+        """Stops and archives the current session."""
+        self.is_trading_active = False
+        self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+        sess = None
+        if self.db and self.current_session_id != "STANDBY":
+            sess = self.db.stop_session(self.current_session_id)
+        self.current_session_id = "STANDBY"
+        logger.info(f"⏹ Trading Session STOPPED and archived.")
+        return sess
+
     async def _on_binance_tick(self, feed: BinanceFeed):
         """Triggered whenever Binance sub-50ms spot tick arrives."""
         velocity = feed.get_velocity()
@@ -147,28 +226,29 @@ class PolymarketQuantEngine:
 
     async def _on_polymarket_book(self, feed: PolymarketFeed):
         """Triggered whenever Polymarket order book updates."""
-        # 1. Check for fills in paper engine (if running paper simulation)
-        if self.config.dry_run:
-            filled = self.paper_engine.check_fills(
-                up_market_ask=feed.up_best_ask,
-                up_last_trade=feed.up_last_trade,
-                down_market_ask=feed.down_best_ask,
-                down_last_trade=feed.down_last_trade,
-            )
+        # 1. Check for fills in paper engine ONLY if trading is actively enabled
+        if self.is_trading_active and not self.inventory.is_stop_loss_triggered:
+            if self.config.dry_run:
+                filled = self.paper_engine.check_fills(
+                    up_market_ask=feed.up_best_ask,
+                    up_last_trade=feed.up_last_trade,
+                    down_market_ask=feed.down_best_ask,
+                    down_last_trade=feed.down_last_trade,
+                )
 
-            if filled:
-                for fill in filled:
-                    self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.0f} shs)"
-                    inv_summary = self.inventory.get_summary()
-                    self.recorder.log_trade(fill, inv_summary)
+                if filled:
+                    for fill in filled:
+                        self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.0f} shs)"
+                        inv_summary = self.inventory.get_summary()
+                        self.recorder.log_trade(fill, inv_summary)
 
         # 2. Recalculate optimal quotes
         await self._evaluate_and_quote()
 
     async def _evaluate_and_quote(self):
         """Calculates optimal bids enforcing cost ceilings, inventory caps, and daily stop-loss."""
-        # Circuit Breaker: Daily Stop-Loss Check
-        if self.inventory.is_stop_loss_triggered:
+        # Check if trading is disabled (STANDBY / PAUSED) or Circuit Breaker triggered
+        if not self.is_trading_active or self.inventory.is_stop_loss_triggered:
             if not self.config.dry_run:
                 await self.live_engine.cancel_all_orders()
             else:

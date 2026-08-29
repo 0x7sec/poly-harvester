@@ -10,6 +10,7 @@ let lastPingTime = 0;
 let latency = 0;
 let lastPrice = 0;
 let priceHistory = [];
+let selectedSessionId = "ACTIVE";
 
 // DOM Elements
 const authModal = document.getElementById("authModal");
@@ -559,22 +560,26 @@ function updateDashboard(data) {
         realizedPnl.textContent = `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
         const isPaused = data.inventory.is_stop_loss_triggered;
-        if (isPaused) {
-            pnlStatus.textContent = "ENGINE PAUSED";
-            pnlStatus.className = "metric-badge font-mono text-yellow";
-            btnResume.classList.remove("active");
-            btnPause.classList.add("active");
-        } else {
-            pnlStatus.textContent = "ACTIVE QUOTING";
-            pnlStatus.className = "metric-badge font-mono badge-active";
-            btnResume.classList.add("active");
-            btnPause.classList.remove("active");
+        const isTrading = data.session ? data.session.is_trading_active : true;
+
+        if (pnlStatus) {
+            if (!isTrading) {
+                pnlStatus.textContent = "STANDBY (NOT TRADING)";
+                pnlStatus.className = "metric-badge font-mono text-yellow";
+            } else if (isPaused) {
+                pnlStatus.textContent = "CIRCUIT BREAKER";
+                pnlStatus.className = "metric-badge font-mono text-pink";
+            } else {
+                pnlStatus.textContent = "ACTIVE QUOTING";
+                pnlStatus.className = "metric-badge font-mono badge-active";
+            }
         }
 
         // Capital Usage
+        const allocatedCap = (data.session && data.session.allocated_capital) ? data.session.allocated_capital : 300.0;
         const invested = (upSh * upC) + (dnSh * dnC);
-        const pct = ((invested / 300.0) * 100.0).toFixed(1);
-        capitalUsage.textContent = `$${invested.toFixed(2)} / $300.00 (${pct}% in risk)`;
+        const pct = ((invested / allocatedCap) * 100.0).toFixed(1);
+        capitalUsage.textContent = `$${invested.toFixed(2)} / $${allocatedCap.toFixed(2)} (${pct}% in risk)`;
     }
 
     // 6. Ping / Latency Metrics to Binance and Polymarket
@@ -671,7 +676,55 @@ function updateDashboard(data) {
         }
     }
 
-    // 8. Real Analytics Snapshot
+    // 8. Session State & Top-Bar Session Controls
+    if (data.session) {
+        const sess = data.session;
+        const isTrading = sess.is_trading_active === true;
+        const statusText = document.getElementById("sessionStatusText");
+        const statusDot = document.getElementById("sessionStatusDot");
+        const btnOpenStart = document.getElementById("btnOpenStartSession");
+        const btnPauseResume = document.getElementById("btnPauseResumeSession");
+        const btnStopSess = document.getElementById("btnStopCurrentSession");
+        const textPR = document.getElementById("textPauseResume");
+
+        if (statusDot && statusText) {
+            if (isTrading) {
+                statusDot.className = "session-dot dot-active";
+                statusText.textContent = `LIVE (${sess.session_id})`;
+                statusText.style.color = "var(--accent-green)";
+            } else if (sess.status === "PAUSED") {
+                statusDot.className = "session-dot dot-standby";
+                statusText.textContent = `PAUSED (${sess.session_id})`;
+                statusText.style.color = "var(--accent-yellow)";
+            } else {
+                statusDot.className = "session-dot dot-stopped";
+                statusText.textContent = "STANDBY";
+                statusText.style.color = "var(--text-muted)";
+            }
+        }
+
+        if (btnOpenStart && btnPauseResume && btnStopSess) {
+            if (isTrading) {
+                btnOpenStart.classList.add("hidden");
+                btnPauseResume.classList.remove("hidden");
+                btnStopSess.classList.remove("hidden");
+                if (textPR) textPR.textContent = "Pause";
+            } else if (sess.status === "PAUSED") {
+                btnOpenStart.classList.remove("hidden");
+                btnOpenStart.innerHTML = `<i data-lucide="plus" class="icon-xs"></i> New Run`;
+                btnPauseResume.classList.remove("hidden");
+                btnStopSess.classList.remove("hidden");
+                if (textPR) textPR.textContent = "Resume";
+            } else {
+                btnOpenStart.classList.remove("hidden");
+                btnOpenStart.innerHTML = `<i data-lucide="play" class="icon-xs"></i> Start Trading`;
+                btnPauseResume.classList.add("hidden");
+                btnStopSess.classList.add("hidden");
+            }
+        }
+    }
+
+    // 9. Real Analytics Snapshot
     if (data.analytics) {
         updateAnalyticsTab(data.analytics);
     }
@@ -977,21 +1030,53 @@ function switchTab(tab) {
 }
 
 async function loadHistoricalLogs() {
+    loadSessionList();
     loadTrades();
     loadCompleteSets();
     loadAnalytics();
     loadMCPData();
 }
 
+async function loadSessionList() {
+    const select = document.getElementById("sessionHistorySelect");
+    if (!select) return;
+
+    try {
+        const res = await fetch("/api/sessions/list?limit=30", {
+            headers: { "X-Auth-Token": authToken }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const sessions = data.sessions || [];
+            const active = data.active_session;
+
+            let html = `
+                <option value="ACTIVE" ${selectedSessionId === 'ACTIVE' ? 'selected' : ''}>⚡ Current Active Session ${active ? '(' + active.session_id + ')' : '(Standby)'}</option>
+                <option value="ALL" ${selectedSessionId === 'ALL' ? 'selected' : ''}>🌐 All-Time Aggregate History</option>
+            `;
+
+            sessions.forEach(s => {
+                const isAct = active && s.session_id === active.session_id;
+                const pnlStr = s.realized_pnl >= 0 ? `+$${s.realized_pnl.toFixed(2)}` : `-$${Math.abs(s.realized_pnl).toFixed(2)}`;
+                const label = `${isAct ? '🟢' : '📜'} ${s.name || s.session_id} (${s.mode} • PnL: ${pnlStr})`;
+                html += `<option value="${s.session_id}" ${selectedSessionId === s.session_id ? 'selected' : ''}>${label}</option>`;
+            });
+
+            select.innerHTML = html;
+        }
+    } catch (e) {}
+}
+
 async function loadTrades() {
     try {
-        const res = await fetch("/api/trades?limit=50", { headers: { "X-Auth-Token": authToken } });
+        const url = `/api/trades?limit=50&session_id=${encodeURIComponent(selectedSessionId)}`;
+        const res = await fetch(url, { headers: { "X-Auth-Token": authToken } });
         if (res.ok) {
             const data = await res.json();
             const trades = data.trades || [];
-            document.getElementById("tradeCountLabel").textContent = `${trades.length} Fills`;
+            document.getElementById("tradeCountLabel").textContent = `${trades.length} Fills (${data.session_id || selectedSessionId})`;
             if (trades.length === 0) {
-                tradeBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No trades recorded yet.</td></tr>`;
+                tradeBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No trades recorded for this session. Waiting for live CLOB fills...</td></tr>`;
                 return;
             }
             tradeBody.innerHTML = trades.map(t => `
@@ -1011,13 +1096,14 @@ async function loadTrades() {
 
 async function loadCompleteSets() {
     try {
-        const res = await fetch("/api/complete_sets?limit=50", { headers: { "X-Auth-Token": authToken } });
+        const url = `/api/complete_sets?limit=50&session_id=${encodeURIComponent(selectedSessionId)}`;
+        const res = await fetch(url, { headers: { "X-Auth-Token": authToken } });
         if (res.ok) {
             const data = await res.json();
             const sets = data.complete_sets || [];
-            document.getElementById("setsCountLabel").textContent = `${sets.length} Merges`;
+            document.getElementById("setsCountLabel").textContent = `${sets.length} Merges (${data.session_id || selectedSessionId})`;
             if (sets.length === 0) {
-                setsBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No complete sets merged yet.</td></tr>`;
+                setsBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No complete sets merged in this session yet.</td></tr>`;
                 return;
             }
             setsBody.innerHTML = sets.map(s => `
@@ -1037,7 +1123,8 @@ async function loadCompleteSets() {
 
 async function loadAnalytics() {
     try {
-        const res = await fetch("/api/analytics", { headers: { "X-Auth-Token": authToken } });
+        const url = `/api/analytics?session_id=${encodeURIComponent(selectedSessionId)}`;
+        const res = await fetch(url, { headers: { "X-Auth-Token": authToken } });
         if (res.ok) {
             const data = await res.json();
             updateAnalyticsTab(data);
@@ -1480,6 +1567,164 @@ if (polyConfigForm) {
             }
         } catch (err) {
             showToast("Network error saving configuration.", "error");
+        }
+    });
+}
+
+// ==================== Session Management Event Listeners ====================
+
+const startSessionModal = document.getElementById("startSessionModal");
+const btnOpenStartSession = document.getElementById("btnOpenStartSession");
+const btnCloseStartSessionModal = document.getElementById("btnCloseStartSessionModal");
+const btnCancelStartSession = document.getElementById("btnCancelStartSession");
+const startSessionForm = document.getElementById("startSessionForm");
+const inputNewSessionName = document.getElementById("inputNewSessionName");
+const radioNewSessionPaper = document.getElementById("radioNewSessionPaper");
+const radioNewSessionLive = document.getElementById("radioNewSessionLive");
+const inputAllocatedCapital = document.getElementById("inputAllocatedCapital");
+const inputOrderSizeShares = document.getElementById("inputOrderSizeShares");
+const btnPauseResumeSession = document.getElementById("btnPauseResumeSession");
+const btnStopCurrentSession = document.getElementById("btnStopCurrentSession");
+const sessionHistorySelect = document.getElementById("sessionHistorySelect");
+
+function showStartSessionModal() {
+    if (startSessionModal) startSessionModal.classList.remove("hidden");
+    refreshIcons();
+}
+
+function hideStartSessionModal() {
+    if (startSessionModal) startSessionModal.classList.add("hidden");
+}
+
+if (btnOpenStartSession) {
+    btnOpenStartSession.addEventListener("click", showStartSessionModal);
+}
+
+if (btnCloseStartSessionModal) {
+    btnCloseStartSessionModal.addEventListener("click", hideStartSessionModal);
+}
+
+if (btnCancelStartSession) {
+    btnCancelStartSession.addEventListener("click", hideStartSessionModal);
+}
+
+if (sessionHistorySelect) {
+    sessionHistorySelect.addEventListener("change", (e) => {
+        selectedSessionId = e.target.value;
+        loadTrades();
+        loadCompleteSets();
+        loadAnalytics();
+        showToast(`Viewing session: ${selectedSessionId}`, "info");
+    });
+}
+
+if (btnPauseResumeSession) {
+    btnPauseResumeSession.addEventListener("click", async () => {
+        const textPR = document.getElementById("textPauseResume");
+        const isCurrentlyPaused = textPR && textPR.textContent.trim() === "Resume";
+        const endpoint = isCurrentlyPaused ? "/api/sessions/resume" : "/api/sessions/pause";
+
+        try {
+            const res = await fetch(endpoint, {
+                method: "POST",
+                headers: { "X-Auth-Token": authToken }
+            });
+            const data = await res.json();
+            if (res.ok && data.status === "SUCCESS") {
+                showToast(isCurrentlyPaused ? "Trading session resumed!" : "Trading session paused.", isCurrentlyPaused ? "success" : "warning");
+                loadHistoricalLogs();
+            } else {
+                showToast(data.error || "Failed to toggle session state.", "error");
+            }
+        } catch (e) {
+            showToast("Network error.", "error");
+        }
+    });
+}
+
+if (btnStopCurrentSession) {
+    btnStopCurrentSession.addEventListener("click", async () => {
+        const confirmed = await customConfirm({
+            title: "Stop & Archive Session?",
+            message: "This will halt all quoting, cancel resting limit orders, and save this session's final stats to the historical archive.",
+            type: "warning",
+            confirmText: "Stop & Archive",
+            cancelText: "Cancel",
+            icon: "square"
+        });
+
+        if (confirmed) {
+            try {
+                const res = await fetch("/api/sessions/stop", {
+                    method: "POST",
+                    headers: { "X-Auth-Token": authToken }
+                });
+                const data = await res.json();
+                if (res.ok && data.status === "SUCCESS") {
+                    showToast("Trading session stopped and archived.", "info");
+                    loadHistoricalLogs();
+                } else {
+                    showToast(data.error || "Failed to stop session.", "error");
+                }
+            } catch (e) {
+                showToast("Network error stopping session.", "error");
+            }
+        }
+    });
+}
+
+if (startSessionForm) {
+    startSessionForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const name = inputNewSessionName ? inputNewSessionName.value.trim() : "";
+        const mode = radioNewSessionLive && radioNewSessionLive.checked ? "LIVE" : "PAPER";
+        const capital = inputAllocatedCapital ? parseFloat(inputAllocatedCapital.value) : 300.0;
+        const shares = inputOrderSizeShares ? parseFloat(inputOrderSizeShares.value) : 20.0;
+
+        if (capital > 300.0) {
+            showToast("Capital cannot exceed maximum $300.00 limit.", "error");
+            return;
+        }
+
+        if (mode === "LIVE") {
+            const confirmed = await customConfirm({
+                title: "Launch LIVE Session?",
+                message: `You are launching a LIVE session with $${capital.toFixed(2)} capital and ${shares} shares per leg. Real orders will execute on Polymarket. Proceed?`,
+                type: "warning",
+                confirmText: "Launch Live Session",
+                cancelText: "Cancel",
+                icon: "zap"
+            });
+            if (!confirmed) return;
+        }
+
+        try {
+            const res = await fetch("/api/sessions/start", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Auth-Token": authToken
+                },
+                body: JSON.stringify({
+                    name: name || undefined,
+                    mode: mode,
+                    allocated_capital: capital,
+                    order_size_shares: shares
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.status === "SUCCESS") {
+                hideStartSessionModal();
+                selectedSessionId = "ACTIVE";
+                showToast(`Session ${data.session.session_id} launched in ${mode} mode!`, "success");
+                loadHistoricalLogs();
+            } else {
+                showToast(data.error || "Failed to start trading session.", "error");
+            }
+        } catch (err) {
+            showToast("Network error launching session.", "error");
         }
     });
 }

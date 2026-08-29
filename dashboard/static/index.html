@@ -170,6 +170,29 @@
                 </div>
 
                 <div class="nav-right">
+                    <!-- Session Status & History Selector Pill -->
+                    <div class="session-pill font-mono" id="sessionPill">
+                        <span class="session-dot dot-standby" id="sessionStatusDot"></span>
+                        <span class="session-status-text font-bold" id="sessionStatusText">STANDBY</span>
+                        <select class="session-select font-mono" id="sessionHistorySelect" title="Switch between Active Session, Past Sessions, and All-Time">
+                            <option value="ACTIVE">⚡ Current Session (Live)</option>
+                            <option value="ALL">🌐 All-Time History</option>
+                        </select>
+                    </div>
+
+                    <!-- Session Action Controls -->
+                    <div class="session-btn-group">
+                        <button class="btn btn-sm btn-primary" id="btnOpenStartSession" type="button" title="Start a new isolated trading session">
+                            <i data-lucide="play" class="icon-xs"></i> Start Trading
+                        </button>
+                        <button class="btn btn-sm btn-outline hidden" id="btnPauseResumeSession" type="button" title="Pause or Resume active session">
+                            <i data-lucide="pause" class="icon-xs" id="iconPauseResume"></i> <span id="textPauseResume">Pause</span>
+                        </button>
+                        <button class="btn btn-sm btn-danger-outline hidden" id="btnStopCurrentSession" type="button" title="Stop and archive active session">
+                            <i data-lucide="square" class="icon-xs"></i> Stop
+                        </button>
+                    </div>
+
                     <!-- Polymarket Geoblock Status Pill -->
                     <div class="geo-pill font-mono" id="polyGeoPill" title="Polymarket Geoblock Compliance Status">
                         <i data-lucide="globe" class="icon-sm text-cyan"></i>
@@ -890,6 +913,72 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
             <div class="modal-actions">
                 <button type="button" class="btn btn-outline btn-block" id="btnClosePayloadModalBtn">Close Inspector</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Start New Trading Session Modal -->
+    <div class="modal-overlay hidden" id="startSessionModal">
+        <div class="modal-card modal-md glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="play-circle" class="icon-lg text-cyan"></i>
+                    </div>
+                    <div>
+                        <h3>START TRADING SESSION</h3>
+                        <p class="modal-subtitle font-mono">Isolated Run • Configurable Capital • Real Execution</p>
+                    </div>
+                </div>
+                <button class="btn-modal-close" id="btnCloseStartSessionModal" type="button" title="Close Modal">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
+            </div>
+
+            <form id="startSessionForm" class="modal-body">
+                <div class="form-group">
+                    <label for="inputNewSessionName">Session Name / Label (Optional):</label>
+                    <input type="text" id="inputNewSessionName" placeholder="e.g. BTC 15M Arbitrage Run #1" class="font-mono">
+                </div>
+
+                <div class="form-section-title">EXECUTION MODE</div>
+                <div class="poly-mode-toggle-group">
+                    <label class="radio-label">
+                        <input type="radio" name="new_session_mode" value="PAPER" checked id="radioNewSessionPaper">
+                        <div class="radio-card">
+                            <strong class="text-green"><i data-lucide="shield" class="icon-xs"></i> Paper Trading (Zero Risk)</strong>
+                            <p>99% accurate CLOB fill simulation against live Polymarket & Binance feeds.</p>
+                        </div>
+                    </label>
+                    <label class="radio-label">
+                        <input type="radio" name="new_session_mode" value="LIVE" id="radioNewSessionLive">
+                        <div class="radio-card radio-card-live">
+                            <strong class="text-yellow"><i data-lucide="zap" class="icon-xs"></i> Live CLOB Execution</strong>
+                            <p>Real EIP-712 limit orders on Polymarket with real USDC collateral.</p>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="form-section-title">CAPITAL ALLOCATION & ORDER SIZING</div>
+                <div class="form-row-2col">
+                    <div class="form-group">
+                        <label for="inputAllocatedCapital">Allocated Capital ($ USD):</label>
+                        <input type="number" id="inputAllocatedCapital" min="20" max="300" step="10" value="300.00" class="font-mono" required>
+                        <span class="field-hint">Max capital bankroll dedicated to this session (Limit: $300).</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="inputOrderSizeShares">Order Size (Shares / Leg):</label>
+                        <input type="number" id="inputOrderSizeShares" min="1" max="100" step="1" value="20" class="font-mono" required>
+                        <span class="field-hint">Shares per limit bid order leg (~$9.00 - $10.00 per leg).</span>
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="btnCancelStartSession">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btnConfirmStartSession">
+                        <i data-lucide="play" class="icon-xs"></i> Launch Trading Session
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
