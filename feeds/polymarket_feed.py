@@ -215,7 +215,16 @@ class PolymarketFeed:
                                 self.market_title = e.get("title") or m.get("question", "Bitcoin Up or Down 5m")
                                 self.market_slug = e.get("slug") or m.get("slug", slug)
                                 self.condition_id = str(m.get("conditionId", ""))
-                                logger.info(f"🎯 Target Short-Term Contract ({self.market_slug}): '{self.market_title}'")
+                                
+                                # Set exact contract end time from slot timestamp
+                                try:
+                                    slot_ts = int(slug.split("-")[-1])
+                                    dur = 300 if "5m" in slug else (900 if "15m" in slug else 3600)
+                                    self.market_end_time = float(slot_ts + dur)
+                                except Exception:
+                                    self.market_end_time = time.time() + 300.0
+
+                                logger.info(f"🎯 Target Short-Term Contract ({self.market_slug}): '{self.market_title}' | Expiry: in {int(self.market_end_time - time.time())}s")
                                 logger.info(f"Condition ID: {self.condition_id} | Token UP: {self.token_id_up} | Token DOWN: {self.token_id_down}")
                                 return True
             except Exception as exc:
@@ -359,7 +368,7 @@ class PolymarketFeed:
                 await asyncio.sleep(5.0)
 
     async def _periodic_ping(self, ws):
-        """Measures WebSocket roundtrip ping latency to Polymarket."""
+        """Measures WebSocket roundtrip ping latency and triggers automatic contract rollover upon expiry."""
         while self._running and not ws.closed:
             try:
                 t0 = time.time()
@@ -368,9 +377,15 @@ class PolymarketFeed:
                 rtt = int((time.time() - t0) * 1000)
                 if rtt > 0:
                     self.latency_ms = rtt
+
+                # Check contract expiry auto-rollover for rolling 5M/15M slots
+                if self.auto_discover and self.market_end_time and time.time() >= self.market_end_time:
+                    logger.info(f"⏳ Contract window ended ('{self.market_title}'). Auto-rolling over to fresh {self.target_timeframe} contract...")
+                    await self.switch_timeframe(self.target_timeframe)
+                    break
             except Exception:
                 pass
-            await asyncio.sleep(4.0)
+            await asyncio.sleep(3.0)
 
     async def _handle_ws_message(self, raw_msg: str):
         """Processes Polymarket orderbook updates."""

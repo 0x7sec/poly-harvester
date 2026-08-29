@@ -291,20 +291,37 @@ class PolymarketQuantEngine:
                 self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False, feed=self.polymarket_feed)
             return
 
+        allow_up = self.current_quotes["allow_quote_up"]
+        allow_down = self.current_quotes["allow_quote_down"]
+
+        # Expiry Safeguard for 5M/15M binary contracts:
+        # In final 35s before bar settlement, freeze initiating fresh unhedged risk,
+        # only quote to close/merge existing complete-set inventory.
+        if self.polymarket_feed.market_end_time:
+            secs_left = self.polymarket_feed.market_end_time - time.time()
+            if secs_left < 35:
+                if self.inventory.up.shares > self.inventory.down.shares:
+                    allow_up = False
+                elif self.inventory.down.shares > self.inventory.up.shares:
+                    allow_down = False
+                elif self.inventory.net_imbalance == 0:
+                    allow_up = False
+                    allow_down = False
+
         # Route orders to active engine (Live CLOB or Paper Simulator)
         if not self.config.dry_run:
             await self.live_engine.sync_orders(
                 quote_up=self.current_quotes["quote_up"],
                 quote_down=self.current_quotes["quote_down"],
-                allow_up=self.current_quotes["allow_quote_up"],
-                allow_down=self.current_quotes["allow_quote_down"],
+                allow_up=allow_up,
+                allow_down=allow_down,
             )
         else:
             self.paper_engine.update_quotes(
                 quote_up=self.current_quotes["quote_up"],
                 quote_down=self.current_quotes["quote_down"],
-                allow_up=self.current_quotes["allow_quote_up"],
-                allow_down=self.current_quotes["allow_quote_down"],
+                allow_up=allow_up,
+                allow_down=allow_down,
                 feed=self.polymarket_feed,
             )
 
