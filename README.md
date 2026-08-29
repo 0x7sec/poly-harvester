@@ -9,7 +9,7 @@ A high-performance, institutional-grade quantitative trading and arbitrage engin
 ```mermaid
 flowchart TD
     subgraph DataFeeds["1. Low-Latency High-Speed Feeds"]
-        BN["Binance Direct WebSocket (<50ms)<br/>feeds/binance_feed.py"]
+        BN["Binance Direct WebSocket (Sub-50ms)<br/>feeds/binance_feed.py"]
         POLY["Polymarket CLOB & Gamma API<br/>feeds/polymarket_feed.py"]
     end
 
@@ -36,22 +36,22 @@ flowchart TD
         MCP_STDIO["Local MCP Server (stdio)<br/>mcp_server.py<br/>• Claude Desktop & Cursor Agent Support"]
     end
 
-    BN -->|Tick Velocity & Momentum| FV
-    POLY -->|L2 Depth & Spread| QUOT
-    FV -->|Fair Probabilities P(UP), P(DOWN)| QUOT
-    INV -->|Held Shares & Avg Costs| QUOT
-    QUOT -->|Bounded Bid Orders| PAPER
-    QUOT -->|Bounded Bid Orders| LIVE
-    PAPER -->|Fills & Updates| INV
-    LIVE -->|Fills & Updates| INV
-    INV -->|Atomic Transactions| DB
-    CoreEngine <-->|Runtime Config Overrides| CACHE
-    DASH <-->|Live Stream & REST Controls| CoreEngine
-    DASH <-->|Query Analytics & Trades| DB
-    MCP_SSE <-->|Remote AI Tool Invocations| CoreEngine
-    MCP_SSE -->|Log Invocations & Latency| DB
-    MCP_OPENAPI -->|Auto-Discover Tool Schemas| MCP_SSE
-    MCP_STDIO <-->|Local AI Invocations| CoreEngine
+    BN -->|"Tick Velocity & Momentum"| FV
+    POLY -->|"L2 Depth & Spread"| QUOT
+    FV -->|"Fair Probabilities P_UP, P_DOWN"| QUOT
+    INV -->|"Held Shares & Avg Costs"| QUOT
+    QUOT -->|"Bounded Bid Orders"| PAPER
+    QUOT -->|"Bounded Bid Orders"| LIVE
+    PAPER -->|"Fills & Updates"| INV
+    LIVE -->|"Fills & Updates"| INV
+    INV -->|"Atomic Transactions"| DB
+    CoreEngine <-->|"Runtime Config Overrides"| CACHE
+    DASH <-->|"Live Stream & REST Controls"| CoreEngine
+    DASH <-->|"Query Analytics & Trades"| DB
+    MCP_SSE <-->|"Remote AI Tool Invocations"| CoreEngine
+    MCP_SSE -->|"Log Invocations & Latency"| DB
+    MCP_OPENAPI -->|"Auto-Discover Tool Schemas"| MCP_SSE
+    MCP_STDIO <-->|"Local AI Invocations"| CoreEngine
 ```
 
 ---
