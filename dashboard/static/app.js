@@ -893,10 +893,33 @@ riskForm.addEventListener("submit", async (e) => {
         } else {
             showToast(data.error || "Failed to update risk parameters.", "error");
         }
-    } catch (err) {
-        showToast("Network error updating risk parameters.", "error");
-    }
 });
+
+// ==================== Timeframe Selector Handler ====================
+const selectTimeframe = document.getElementById("selectTimeframe");
+if (selectTimeframe) {
+    selectTimeframe.addEventListener("change", async () => {
+        const tf = selectTimeframe.value;
+        try {
+            const res = await fetch("/api/control/set_timeframe", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Auth-Token": authToken
+                },
+                body: JSON.stringify({ timeframe: tf })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                showToast(`Target contract switched to ${tf}: ${data.market_title}`, "success");
+            } else {
+                showToast(data.error || "Failed to switch market timeframe.", "error");
+            }
+        } catch (e) {
+            showToast("Network error while switching timeframe.", "error");
+        }
+    });
+}
 
 // ==================== Sidebar & Navigation Handlers ====================
 

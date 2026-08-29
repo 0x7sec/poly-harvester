@@ -25,16 +25,18 @@ class PolymarketFeed:
         token_id_down: str = "",
         auto_discover: bool = True,
         target_market_slug: str = "",
+        target_timeframe: str = "5M",
         on_book_update_callback: Optional[Callable[["PolymarketFeed"], None]] = None,
     ):
         self.token_id_up = token_id_up
         self.token_id_down = token_id_down
         self.auto_discover = auto_discover
         self.target_market_slug = target_market_slug
+        self.target_timeframe = target_timeframe.upper().strip()
         self.on_book_update_callback = on_book_update_callback
 
         # Market Info
-        self.market_title: str = "BTC Up or Down 5m"
+        self.market_title: str = "BTC Up or Down"
         self.market_end_time: Optional[float] = None
         self.market_slug: str = ""
         self.condition_id: str = ""
@@ -63,6 +65,29 @@ class PolymarketFeed:
         self._running: bool = False
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
 
+    async def switch_timeframe(self, timeframe: str) -> bool:
+        """Dynamically switches between 5M, 15M, 1H, 24H contract timeframes."""
+        self.target_timeframe = timeframe.upper().strip()
+        logger.info(f"🔄 Switching target timeframe to: {self.target_timeframe}")
+        success = await self.discover_active_crypto_market()
+        if success:
+            await self.fetch_clob_midpoints()
+            if self._ws and not self._ws.closed:
+                try:
+                    sub_msg = {
+                        "type": "market",
+                        "assets_ids": [self.token_id_up, self.token_id_down],
+                    }
+                    await self._ws.send(json.dumps(sub_msg))
+                except Exception as exc:
+                    logger.debug(f"WS resubscribe error on timeframe switch: {exc}")
+
+            if self.on_book_update_callback:
+                res = self.on_book_update_callback(self)
+                if asyncio.iscoroutine(res):
+                    await res
+        return success
+
     def get_order_book_obj(self, side: str):
         """Returns a pm_trader OrderBook object for exact level-by-level walking."""
         from pm_trader.models import OrderBook, OrderBookLevel
@@ -86,9 +111,7 @@ class PolymarketFeed:
         return depth
 
     def get_ask_depth_at_or_below(self, side: str, price: float) -> float:
-        """
-        Calculates total ask volume available at or below `price` (for immediate crossing).
-        """
+        """Calculates total ask volume available at or below price (for immediate crossing)."""
         book_asks = self.up_asks if side.upper() == "UP" else self.down_asks
         depth = 0.0
         for a in book_asks:
@@ -121,8 +144,8 @@ class PolymarketFeed:
 
     async def discover_active_crypto_market(self, search_slug: Optional[str] = None) -> bool:
         """
-        Discovers the live active short-term Bitcoin Up/Down market (5-minute or 15-minute rolling slots)
-        or a specific slug from Polymarket Gamma API.
+        Discovers the live active short-term Bitcoin Up/Down market based on target_timeframe
+        (5-minute, 15-minute, 1-hour, or 24-hour daily slots) or a specific slug from Polymarket Gamma API.
         """
         def _fetch_url(url: str):
             import urllib.request
@@ -146,13 +169,34 @@ class PolymarketFeed:
         next_5m = current_5m + 300
         current_15m = (now_ts // 900) * 900
         next_15m = current_15m + 900
+        current_1h = (now_ts // 3600) * 3600
+        next_1h = current_1h + 3600
 
-        candidate_slugs.extend([
-            f"btc-updown-5m-{current_5m}",
-            f"btc-updown-5m-{next_5m}",
-            f"btc-updown-15m-{current_15m}",
-            f"btc-updown-15m-{next_15m}",
-        ])
+        # Prioritize according to target_timeframe
+        tf = getattr(self, "target_timeframe", "5M")
+        if tf == "15M":
+            candidate_slugs.extend([
+                f"btc-updown-15m-{current_15m}",
+                f"btc-updown-15m-{next_15m}",
+                f"btc-updown-5m-{current_5m}",
+                f"btc-updown-5m-{next_5m}",
+            ])
+        elif tf == "1H":
+            candidate_slugs.extend([
+                f"btc-updown-1h-{current_1h}",
+                f"btc-updown-1h-{next_1h}",
+                f"btc-updown-15m-{current_15m}",
+                f"btc-updown-5m-{current_5m}",
+            ])
+        elif tf == "24H":
+            pass # Skip straight to daily / highest volume markets
+        else: # Default 5M
+            candidate_slugs.extend([
+                f"btc-updown-5m-{current_5m}",
+                f"btc-updown-5m-{next_5m}",
+                f"btc-updown-15m-{current_15m}",
+                f"btc-updown-15m-{next_15m}",
+            ])
 
         # Try discrete short-term slug endpoints first
         for slug in candidate_slugs:

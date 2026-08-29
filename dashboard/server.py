@@ -158,6 +158,7 @@ class DashboardServer:
         self.app.router.add_post("/api/control/resume", self._handle_resume)
         self.app.router.add_post("/api/control/emergency", self._handle_emergency)
         self.app.router.add_post("/api/control/update_risk", self._handle_update_risk)
+        self.app.router.add_post("/api/control/set_timeframe", self._handle_set_timeframe)
 
         # MCP Manager Endpoints
         self.app.router.add_get("/api/mcp/keys", self._handle_mcp_list_keys)
@@ -490,6 +491,26 @@ class DashboardServer:
             return web.json_response({"success": True, "message": "Risk parameters updated and persisted successfully."})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=400)
+
+    async def _handle_set_timeframe(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
+        try:
+            body = await request.json()
+            timeframe = str(body.get("timeframe", "5M")).upper().strip()
+            if hasattr(self.engine, "polymarket_feed") and self.engine.polymarket_feed:
+                success = await self.engine.polymarket_feed.switch_timeframe(timeframe)
+                if success:
+                    logger.info(f"Successfully switched timeframe to {timeframe}: '{self.engine.polymarket_feed.market_title}'")
+                    return web.json_response({
+                        "success": True,
+                        "timeframe": timeframe,
+                        "market_title": self.engine.polymarket_feed.market_title,
+                        "market_slug": self.engine.polymarket_feed.market_slug,
+                    })
+            return web.json_response({"success": False, "error": "Unable to discover market for requested timeframe"}, status=400)
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=400)
 
     # ================= MCP Manager Endpoints =================
 
