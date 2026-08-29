@@ -61,6 +61,17 @@ class PolymarketFeed:
         self._running: bool = False
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
 
+    def get_order_book_obj(self, side: str):
+        """Returns a pm_trader OrderBook object for exact level-by-level walking."""
+        from pm_trader.models import OrderBook, OrderBookLevel
+        if side.upper() == "UP":
+            bids = [OrderBookLevel(price=b["price"], size=b.get("size", 100.0)) for b in self.up_bids]
+            asks = [OrderBookLevel(price=a["price"], size=a.get("size", 100.0)) for a in self.up_asks]
+        else:
+            bids = [OrderBookLevel(price=b["price"], size=b.get("size", 100.0)) for b in self.down_bids]
+            asks = [OrderBookLevel(price=a["price"], size=a.get("size", 100.0)) for a in self.down_asks]
+        return OrderBook(bids=bids, asks=asks)
+
     def get_bid_depth_ahead(self, side: str, price: float) -> float:
         """
         Calculates total volume of existing bids sitting ahead of a new order at `price`.

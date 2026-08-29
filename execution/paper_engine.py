@@ -1,11 +1,11 @@
 """
 Realistic Polymarket CLOB Paper Trading & Order Matching Simulator.
-Implements institutional-grade order matching:
+Powered by pm_trader level-by-level order book simulation:
 1. True L2 Order Book Depth & FIFO Queue Priority.
 2. In-flight network latency simulation (50ms - 100ms wire delay).
-3. Direct spread cross execution against available ask liquidity.
-4. Passive Maker matching driven strictly by real market trade prints.
-5. Partial fill execution and remaining share tracking.
+3. Direct spread cross execution via pm_trader.orderbook.simulate_buy_fill / simulate_sell_fill.
+4. Exact Polymarket trading fees and slippage calculations in basis points.
+5. Passive Maker matching driven strictly by real market trade prints.
 6. Bankroll invariants and strict Complete-Set arbitrage merging.
 """
 import logging
@@ -13,6 +13,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 from models.inventory import InventoryManager
+from pm_trader.orderbook import simulate_buy_fill, simulate_sell_fill, calculate_fee
+from pm_trader.models import OrderBook, OrderBookLevel, FillResult
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,8 @@ class VirtualOrder:
 class PaperTradingEngine:
     """
     Simulates 100% realistic CLOB matching against live Polymarket order book depth and trade prints.
-    Eliminates artificial timer-based fills; orders only execute on real market liquidity or trade flow.
+    Integrates pm_trader's level-by-level book walking, VWAP price discovery, exact fee formulas,
+    and slippage tracking.
     """
 
     def __init__(
@@ -61,10 +64,6 @@ class PaperTradingEngine:
             except Exception:
                 pass
         self._order_counter: int = len(self.fill_history)
-
-        # Track previous trade prints to avoid duplicate matches
-        self._last_processed_trade_ts_up: float = 0.0
-        self._last_processed_trade_ts_down: float = 0.0
 
     def update_quotes(
         self,
@@ -149,14 +148,15 @@ class PaperTradingEngine:
         Executes 100% realistic matching against live Polymarket market data:
         1. In-flight wire delay: Orders cannot fill before in_flight_until.
         2. Bankroll check: Total spent + order cost <= session allocated capital.
-        3. Direct Crossing: If bid >= market ask, fills immediately against ask depth.
+        3. Direct Crossing: Walks ask book using pm_trader.orderbook.simulate_buy_fill.
         4. Passive Maker Flow: Real market trade prints consume queue ahead before filling order.
-        5. Partial Fills: Executes matched size, decrements remaining shares until fully filled.
+        5. Exact Fees & Slippage: Computed using official Polymarket formulas.
         """
         filled_events = []
         now = time.time()
         current_spent = self.inventory.up.total_spent + self.inventory.down.total_spent
         cap_ceiling = self.inventory.allocated_capital
+        fee_rate_bps = getattr(feed, "fee_rate_bps", 0) if feed else 0
 
         # Extract unprocessed trade prints from feed if available
         incoming_trades = list(trade_events or [])
@@ -177,16 +177,34 @@ class PaperTradingEngine:
                     bid_p = order.price
                     fill_shares = 0.0
                     fill_price = bid_p
+                    fill_fee = 0.0
+                    slippage_bps = 0.0
 
-                    # A. Direct Cross: Market ask dropped at or below our bid
-                    if up_market_ask > 0.0 and up_market_ask <= bid_p:
-                        ask_depth = order.remaining_shares
-                        if feed and hasattr(feed, "get_ask_depth_at_or_below"):
-                            avail_depth = feed.get_ask_depth_at_or_below("UP", bid_p)
-                            if avail_depth > 0:
-                                ask_depth = min(order.remaining_shares, avail_depth)
-                        fill_shares = ask_depth
-                        fill_price = min(bid_p, up_market_ask)
+                    # A. Direct Cross: Walk ask book using pm_trader.orderbook.simulate_buy_fill
+                    if feed and hasattr(feed, "get_order_book_obj"):
+                        book_up = feed.get_order_book_obj("UP")
+                    else:
+                        asks_list = [OrderBookLevel(price=a["price"], size=a.get("size", 100.0)) for a in (feed.up_asks if feed else [])]
+                        if not asks_list and up_market_ask > 0.0:
+                            asks_list = [OrderBookLevel(price=up_market_ask, size=1000.0)]
+                        bids_list = [OrderBookLevel(price=b["price"], size=b.get("size", 100.0)) for b in (feed.up_bids if feed else [])]
+                        if not bids_list and up_best_bid > 0.0:
+                            bids_list = [OrderBookLevel(price=up_best_bid, size=1000.0)]
+                        book_up = OrderBook(bids=bids_list, asks=asks_list)
+
+                    fill_result = simulate_buy_fill(
+                        book=book_up,
+                        amount_usd=order.remaining_shares * bid_p,
+                        fee_rate_bps=fee_rate_bps,
+                        order_type="fak",
+                        max_price=bid_p,
+                    )
+
+                    if fill_result.total_shares > 0:
+                        fill_shares = min(order.remaining_shares, fill_result.total_shares)
+                        fill_price = fill_result.avg_price
+                        fill_fee = fill_result.fee
+                        slippage_bps = fill_result.slippage_bps
 
                     # B. Passive Maker Queue Flow: Real trade prints executed at or below our bid
                     if fill_shares <= 0:
@@ -205,23 +223,24 @@ class PaperTradingEngine:
                                 exec_qty = min(order.remaining_shares, tr_vol)
                                 fill_shares += exec_qty
                                 fill_price = bid_p
+                                fill_fee = calculate_fee(fee_rate_bps, bid_p, exec_qty)
                                 if fill_shares >= order.remaining_shares:
                                     break
 
                     # Execute fill if matched
                     if fill_shares > 0:
                         fill_shares = round(fill_shares, 2)
-                        fee = 0.0  # Polymarket maker orders have 0% fee
-                        self.inventory.on_fill("UP", fill_price, fill_shares, fee)
+                        self.inventory.on_fill("UP", fill_price, fill_shares, fill_fee)
 
                         event = {
                             "timestamp": now,
                             "order_id": order.order_id,
                             "side": "UP",
-                            "price": fill_price,
+                            "price": round(fill_price, 4),
                             "shares": fill_shares,
                             "cost": round(fill_price * fill_shares, 2),
-                            "fee": fee,
+                            "fee": round(fill_fee, 4),
+                            "slippage_bps": round(slippage_bps, 1),
                             "remaining_shares": max(0.0, round(order.remaining_shares - fill_shares, 2)),
                         }
                         if self.db:
@@ -244,7 +263,7 @@ class PaperTradingEngine:
 
                         logger.info(
                             f"[REALISTIC PAPER FILL] UP: {fill_shares:.1f} shs @ ${fill_price:.3f} | "
-                            f"Remaining: {max(0.0, order.remaining_shares):.1f} | Order: {event['order_id']}"
+                            f"Fee: ${fill_fee:.4f} | Slip: {slippage_bps:+.1f}bps | Order: {event['order_id']}"
                         )
 
         # =========================================================================
@@ -260,16 +279,34 @@ class PaperTradingEngine:
                     bid_p = order.price
                     fill_shares = 0.0
                     fill_price = bid_p
+                    fill_fee = 0.0
+                    slippage_bps = 0.0
 
-                    # A. Direct Cross: Market ask dropped at or below our bid
-                    if down_market_ask > 0.0 and down_market_ask <= bid_p:
-                        ask_depth = order.remaining_shares
-                        if feed and hasattr(feed, "get_ask_depth_at_or_below"):
-                            avail_depth = feed.get_ask_depth_at_or_below("DOWN", bid_p)
-                            if avail_depth > 0:
-                                ask_depth = min(order.remaining_shares, avail_depth)
-                        fill_shares = ask_depth
-                        fill_price = min(bid_p, down_market_ask)
+                    # A. Direct Cross: Walk ask book using pm_trader.orderbook.simulate_buy_fill
+                    if feed and hasattr(feed, "get_order_book_obj"):
+                        book_down = feed.get_order_book_obj("DOWN")
+                    else:
+                        asks_list = [OrderBookLevel(price=a["price"], size=a.get("size", 100.0)) for a in (feed.down_asks if feed else [])]
+                        if not asks_list and down_market_ask > 0.0:
+                            asks_list = [OrderBookLevel(price=down_market_ask, size=1000.0)]
+                        bids_list = [OrderBookLevel(price=b["price"], size=b.get("size", 100.0)) for b in (feed.down_bids if feed else [])]
+                        if not bids_list and down_best_bid > 0.0:
+                            bids_list = [OrderBookLevel(price=down_best_bid, size=1000.0)]
+                        book_down = OrderBook(bids=bids_list, asks=asks_list)
+
+                    fill_result = simulate_buy_fill(
+                        book=book_down,
+                        amount_usd=order.remaining_shares * bid_p,
+                        fee_rate_bps=fee_rate_bps,
+                        order_type="fak",
+                        max_price=bid_p,
+                    )
+
+                    if fill_result.total_shares > 0:
+                        fill_shares = min(order.remaining_shares, fill_result.total_shares)
+                        fill_price = fill_result.avg_price
+                        fill_fee = fill_result.fee
+                        slippage_bps = fill_result.slippage_bps
 
                     # B. Passive Maker Queue Flow: Real trade prints executed at or below our bid
                     if fill_shares <= 0:
@@ -288,22 +325,23 @@ class PaperTradingEngine:
                                 exec_qty = min(order.remaining_shares, tr_vol)
                                 fill_shares += exec_qty
                                 fill_price = bid_p
+                                fill_fee = calculate_fee(fee_rate_bps, bid_p, exec_qty)
                                 if fill_shares >= order.remaining_shares:
                                     break
 
                     if fill_shares > 0:
                         fill_shares = round(fill_shares, 2)
-                        fee = 0.0
-                        self.inventory.on_fill("DOWN", fill_price, fill_shares, fee)
+                        self.inventory.on_fill("DOWN", fill_price, fill_shares, fill_fee)
 
                         event = {
                             "timestamp": now,
                             "order_id": order.order_id,
                             "side": "DOWN",
-                            "price": fill_price,
+                            "price": round(fill_price, 4),
                             "shares": fill_shares,
                             "cost": round(fill_price * fill_shares, 2),
-                            "fee": fee,
+                            "fee": round(fill_fee, 4),
+                            "slippage_bps": round(slippage_bps, 1),
                             "remaining_shares": max(0.0, round(order.remaining_shares - fill_shares, 2)),
                         }
                         if self.db:
@@ -326,7 +364,7 @@ class PaperTradingEngine:
 
                         logger.info(
                             f"[REALISTIC PAPER FILL] DOWN: {fill_shares:.1f} shs @ ${fill_price:.3f} | "
-                            f"Remaining: {max(0.0, order.remaining_shares):.1f} | Order: {event['order_id']}"
+                            f"Fee: ${fill_fee:.4f} | Slip: {slippage_bps:+.1f}bps | Order: {event['order_id']}"
                         )
 
         return filled_events
