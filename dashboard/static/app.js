@@ -648,7 +648,7 @@ function updateDashboard(data) {
         const bal = sdk.balance || {};
         const polyUsdcBalance = document.getElementById("polyUsdcBalance");
         if (polyUsdcBalance) {
-            const uBal = bal.usdc_balance !== undefined ? bal.usdc_balance : 300.0;
+            const uBal = (bal.usdc_balance !== undefined && bal.usdc_balance !== null) ? Number(bal.usdc_balance) : 0.0;
             polyUsdcBalance.textContent = `$${uBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
 
@@ -1506,11 +1506,13 @@ if (btnRunPolyAudit) {
                 const geo = data.geoblock || {};
                 const bal = data.balance || {};
                 const geoText = geo.blocked ? `RESTRICTED (Country: ${geo.country}, IP: ${geo.ip})` : `ELIGIBLE (Country: ${geo.country}, IP: ${geo.ip})`;
+                const usdcBal = (bal.usdc_balance !== undefined && bal.usdc_balance !== null) ? Number(bal.usdc_balance) : 0.0;
+                const allowVal = (bal.allowance !== undefined && bal.allowance !== null) ? Number(bal.allowance) : 0.0;
 
                 polyAuditOutput.textContent = [
                     `[GEOBLOCK AUDIT]: ${geoText}`,
-                    `[COLLATERAL BALANCE]: $${(bal.usdc_balance || 300).toFixed(2)} USDC.e`,
-                    `[ALLOWANCE]: $${(bal.allowance || 10000).toFixed(2)}`,
+                    `[COLLATERAL BALANCE]: $${usdcBal.toFixed(2)} USDC.e`,
+                    `[ALLOWANCE]: $${allowVal.toFixed(2)}`,
                     `[AUTH STATUS]: ${data.is_authenticated ? 'AUTHENTICATED (Secure Client Ready)' : 'SIMULATION / PUBLIC ONLY'}`,
                     geo.blocked ? "\n⚠️ WARNING: Your IP is in a geoblocked region. Please configure an outbound Proxy URL (e.g. EU region) to place real orders." : "\n✅ IP is compliant and eligible for order execution."
                 ].join("\n");
