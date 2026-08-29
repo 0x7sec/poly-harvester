@@ -17,9 +17,15 @@ dist/
 *.log
 trades_simulated.csv
 benchmark_*_trades.csv
+benchmark_*_report.json
+
+# SQLite & Diskcache runtime stores
+data/*.db*
+data/cache/
 
 # IDE & OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+

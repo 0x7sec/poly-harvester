@@ -26,17 +26,25 @@ class PaperTradingEngine:
     Ensures zero financial risk while testing strategy edge and fill mechanics.
     """
 
-    def __init__(self, inventory: InventoryManager, order_size_shares: float = 50.0):
+    def __init__(self, inventory: InventoryManager, order_size_shares: float = 20.0, db=None):
         self.inventory = inventory
         self.order_size_shares = order_size_shares
+        self.db = db
 
         # Active virtual orders
         self.active_order_up: Optional[VirtualOrder] = None
         self.active_order_down: Optional[VirtualOrder] = None
 
-        # Fill history
+        # Fill history (hydrated from DB if available)
         self.fill_history: List[dict] = []
-        self._order_counter: int = 0
+        if self.db:
+            try:
+                self.fill_history = self.db.get_recent_trades(limit=100)
+                # Reverse to keep chronological order
+                self.fill_history.reverse()
+            except Exception:
+                pass
+        self._order_counter: int = len(self.fill_history)
 
     def update_quotes(
         self,
@@ -112,6 +120,9 @@ class PaperTradingEngine:
                     "cost": round(fill_price * fill_shares, 2),
                     "fee": fee,
                 }
+                if self.db:
+                    self.db.log_trade(event, self.inventory.up.shares, self.inventory.down.shares, "PAPER")
+
                 filled_events.append(event)
                 self.fill_history.append(event)
                 self.active_order_up.is_active = False
@@ -137,6 +148,9 @@ class PaperTradingEngine:
                     "cost": round(fill_price * fill_shares, 2),
                     "fee": fee,
                 }
+                if self.db:
+                    self.db.log_trade(event, self.inventory.up.shares, self.inventory.down.shares, "PAPER")
+
                 filled_events.append(event)
                 self.fill_history.append(event)
                 self.active_order_down.is_active = False

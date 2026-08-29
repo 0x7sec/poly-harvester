@@ -13,7 +13,7 @@ class TestPolymarketQuantEngine(unittest.TestCase):
 
     def test_complete_set_accumulation_and_merging(self):
         """Tests that buying UP at $0.44 and DOWN at $0.51 merges into 1 Complete Set with $0.05 profit."""
-        inventory = InventoryManager()
+        inventory = InventoryManager(max_combined_cost=0.960)
 
         # Step 1: Buy 100 UP @ 0.44
         inventory.on_fill("UP", price=0.44, shares=100.0)
@@ -31,6 +31,19 @@ class TestPolymarketQuantEngine(unittest.TestCase):
         self.assertEqual(inventory.up.shares, 0.0)
         self.assertEqual(inventory.down.shares, 0.0)
 
+    def test_no_negative_complete_set_merges(self):
+        """Tests that buying UP at $0.55 and DOWN at $0.50 (cost $1.05 > $0.96) is NOT merged at a loss."""
+        inventory = InventoryManager(max_combined_cost=0.960)
+
+        inventory.on_fill("UP", price=0.55, shares=50.0)
+        inventory.on_fill("DOWN", price=0.50, shares=50.0)
+
+        # Must NOT merge because combined cost $1.05 exceeds max_combined_cost $0.96
+        self.assertEqual(inventory.total_complete_sets_merged, 0.0)
+        self.assertEqual(inventory.realized_arbitrage_pnl, 0.0)
+        self.assertEqual(inventory.up.shares, 50.0)
+        self.assertEqual(inventory.down.shares, 50.0)
+
     def test_hard_complete_set_cost_ceiling(self):
         """Tests Rule: Never buy both sides for more than $0.960."""
         quoter = QuotingEngine(
@@ -38,6 +51,7 @@ class TestPolymarketQuantEngine(unittest.TestCase):
             max_combined_cost=0.960,
             min_bid_price=0.05,
             max_bid_price=0.95,
+            max_imbalance=60.0,
         )
 
         quotes = quoter.calculate_quotes(
@@ -52,19 +66,19 @@ class TestPolymarketQuantEngine(unittest.TestCase):
         self.assertGreaterEqual(quotes["projected_edge"], 0.040)
 
     def test_strict_inventory_cap_enforcement(self):
-        """Tests Rule: Never hold more than 100 unhedged shares on one side."""
+        """Tests Rule: Never hold more than max_imbalance unhedged shares on one side."""
         quoter = QuotingEngine(
             target_edge=0.040,
             max_combined_cost=0.960,
-            max_imbalance=100.0,
+            max_imbalance=60.0,
         )
 
-        # Holding 100 UP shares -> Must freeze quoting new UP bids
+        # Holding 60 UP shares -> Must freeze quoting new UP bids
         quotes = quoter.calculate_quotes(
             q_up=0.50,
             q_down=0.50,
             stoikov_skew=0.03,
-            net_imbalance=100.0,
+            net_imbalance=60.0,
             up_avg_cost=0.46,
         )
 
@@ -72,20 +86,20 @@ class TestPolymarketQuantEngine(unittest.TestCase):
         self.assertTrue(quotes["allow_quote_down"], "Should continue allowing DOWN bids to complete sets")
 
     def test_daily_stop_loss_circuit_breaker(self):
-        """Tests Rule: Shuts down engine if daily loss reaches -$30.00."""
-        inventory = InventoryManager(daily_stop_loss=30.0)
+        """Tests Rule: Shuts down engine if daily loss reaches -$25.00."""
+        inventory = InventoryManager(daily_stop_loss=25.0)
 
         # Simulate fee drag or trade losses
-        inventory.on_fill("UP", price=0.50, shares=10.0, fee=35.0)
+        inventory.on_fill("UP", price=0.50, shares=10.0, fee=30.0)
 
-        self.assertTrue(inventory.is_stop_loss_triggered, "Stop-loss must trigger when net PnL <= -$30.00")
+        self.assertTrue(inventory.is_stop_loss_triggered, "Stop-loss must trigger when net PnL <= -$25.00")
         summary = inventory.get_summary()
         self.assertTrue(summary["is_stop_loss_triggered"])
 
     def test_paper_trading_fill_simulation(self):
         """Tests paper trading engine fills virtual limit bids when market ask touches limit price."""
-        inventory = InventoryManager()
-        engine = PaperTradingEngine(inventory=inventory, order_size_shares=25.0)
+        inventory = InventoryManager(max_combined_cost=0.960)
+        engine = PaperTradingEngine(inventory=inventory, order_size_shares=20.0)
 
         engine.update_quotes(quote_up=0.45, quote_down=0.48, allow_up=True, allow_down=True)
 
@@ -99,7 +113,7 @@ class TestPolymarketQuantEngine(unittest.TestCase):
         self.assertEqual(len(fills), 1)
         self.assertEqual(fills[0]["side"], "UP")
         self.assertEqual(fills[0]["price"], 0.45)
-        self.assertEqual(inventory.up.shares, 25.0)
+        self.assertEqual(inventory.up.shares, 20.0)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poly-Harvester // Cyber-Quant Terminal</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="background-glow-top"></div>
+    <div class="background-glow-bottom"></div>
+
+    <div class="app-layout">
+        <!-- ==================== LEFT SIDEBAR ==================== -->
+        <aside class="sidebar glass-panel" id="sidebar">
+            <!-- Sidebar Header / Brand -->
+            <div class="sidebar-header">
+                <div class="brand-group">
+                    <div class="pulse-indicator" id="statusPulse"></div>
+                    <div class="brand-text">
+                        <span class="brand-title">POLY-HARVESTER</span>
+                        <span class="brand-subtitle">QUANT ARBITRAGE v1.4</span>
+                    </div>
+                </div>
+                <button class="btn-sidebar-close" id="btnSidebarClose" title="Close Sidebar">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
+            </div>
+
+            <!-- Quick Navigation Links -->
+            <nav class="sidebar-nav">
+                <div class="nav-section-title">NAVIGATION</div>
+                <button class="side-nav-btn active" id="sideNavDashboard" data-tab="dashboard">
+                    <i data-lucide="layout-dashboard" class="icon-sm"></i>
+                    <span>Dashboard Overview</span>
+                </button>
+                <button class="side-nav-btn" id="sideNavTrades" data-tab="trades">
+                    <i data-lucide="receipt" class="icon-sm"></i>
+                    <span>Executed Trades</span>
+                </button>
+                <button class="side-nav-btn" id="sideNavSets" data-tab="sets">
+                    <i data-lucide="layers" class="icon-sm"></i>
+                    <span>Complete-Sets Ledger</span>
+                </button>
+                <button class="side-nav-btn" id="sideNavAnalytics" data-tab="analytics">
+                    <i data-lucide="bar-chart-3" class="icon-sm"></i>
+                    <span>Performance Analytics</span>
+                </button>
+                <button class="side-nav-btn" id="sideNavMCP" data-tab="mcp">
+                    <i data-lucide="cpu" class="icon-sm"></i>
+                    <span>MCP Agent Manager</span>
+                </button>
+            </nav>
+
+            <!-- Sidebar Risk Controls & Overrides -->
+            <div class="sidebar-risk-panel" id="riskControlsCard">
+                <div class="sidebar-panel-header">
+                    <div class="panel-title-group">
+                        <i data-lucide="sliders" class="icon-sm text-yellow"></i>
+                        <span>RISK CONTROLS</span>
+                    </div>
+                    <span class="badge badge-purple font-mono">DISKCACHE</span>
+                </div>
+
+                <!-- Segmented Quoting Switch -->
+                <div class="segmented-control">
+                    <button class="seg-btn seg-resume active" id="btnResume">
+                        <i data-lucide="play" class="icon-xs"></i>
+                        <span>RESUME</span>
+                    </button>
+                    <button class="seg-btn seg-pause" id="btnPause">
+                        <i data-lucide="pause" class="icon-xs"></i>
+                        <span>PAUSE</span>
+                    </button>
+                </div>
+
+                <!-- Risk Limit Form -->
+                <form id="riskForm" class="risk-form">
+                    <div class="form-group">
+                        <label for="inputOrderSize">Order Size:</label>
+                        <div class="input-unit-wrapper">
+                            <input type="number" step="1" id="inputOrderSize" value="20" required>
+                            <span class="input-unit font-mono">Shares</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="inputMaxImbalance">Max Imbalance:</label>
+                        <div class="input-unit-wrapper">
+                            <input type="number" step="1" id="inputMaxImbalance" value="60" required>
+                            <span class="input-unit font-mono">Shares</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="inputMaxCost">Max Cost Ceiling:</label>
+                        <div class="input-unit-wrapper">
+                            <input type="number" step="0.005" id="inputMaxCost" value="0.960" required>
+                            <span class="input-unit font-mono">USD ($)</span>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-submit-risk">
+                        <i data-lucide="shield-check" class="icon-sm"></i>
+                        <span>UPDATE LIMITS</span>
+                    </button>
+                </form>
+
+                <!-- Emergency Halt Button in Sidebar -->
+                <button class="btn btn-emergency btn-sidebar-emergency" id="btnEmergency">
+                    <i data-lucide="shield-alert" class="icon-sm"></i>
+                    <span>EMERGENCY HALT</span>
+                </button>
+            </div>
+
+            <!-- Bottom Section: User Profile Card & Storage Status -->
+            <div class="sidebar-bottom-section">
+                <!-- User Profile Card -->
+                <div class="sidebar-profile-card">
+                    <div class="profile-avatar">
+                        <i data-lucide="user-check" class="icon-md text-cyan"></i>
+                    </div>
+                    <div class="profile-info">
+                        <span class="profile-name" id="currentUserDisplay">ADMIN</span>
+                        <span class="profile-role">QUANT OPERATOR</span>
+                    </div>
+                    <div class="profile-actions">
+                        <button class="btn-profile-action" id="btnOpenProfileModal" title="Account Security & Settings">
+                            <i data-lucide="settings" class="icon-xs"></i>
+                        </button>
+                        <button class="btn-profile-action btn-logout-action" id="btnLogout" title="Logout of Terminal">
+                            <i data-lucide="log-out" class="icon-xs"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sidebar Footer Status -->
+                <div class="sidebar-footer">
+                    <div class="storage-indicators font-mono">
+                        <span class="storage-badge"><i data-lucide="database" class="icon-xs text-green"></i> SQLite WAL</span>
+                        <span class="storage-badge"><i data-lucide="hard-drive" class="icon-xs text-purple"></i> Diskcache</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Mobile Sidebar Backdrop Overlay -->
+        <div class="sidebar-backdrop hidden" id="sidebarBackdrop"></div>
+
+        <!-- ==================== MAIN CONTENT AREA ==================== -->
+        <div class="main-content">
+            
+            <!-- Top Bar / Telemetry Header -->
+            <header class="top-nav glass-panel">
+                <div class="nav-left">
+                    <button class="btn-sidebar-toggle" id="btnSidebarToggle" title="Open Navigation & Risk Controls">
+                        <i data-lucide="menu" class="icon-md"></i>
+                        <span class="btn-sidebar-toggle-text">MENU</span>
+                    </button>
+                    <div class="market-pill">
+                        <i data-lucide="activity" class="icon-sm text-cyan"></i>
+                        <span id="marketSlug">BTC 15M DURATION</span>
+                    </div>
+                </div>
+
+                <div class="nav-right">
+                    <!-- Ping to Binance -->
+                    <div class="ping-pill font-mono" id="binancePingPill" title="Binance Direct Feed Latency">
+                        <i data-lucide="zap" class="icon-sm text-yellow"></i>
+                        <span class="ping-label">BINANCE:</span>
+                        <strong class="ping-val text-yellow" id="binancePingVal">-- ms</strong>
+                    </div>
+
+                    <!-- Ping to Polymarket -->
+                    <div class="ping-pill font-mono" id="polyPingPill" title="Polymarket CLOB Feed Latency">
+                        <i data-lucide="activity" class="icon-sm text-purple"></i>
+                        <span class="ping-label">POLY:</span>
+                        <strong class="ping-val text-purple" id="polyPingVal">-- ms</strong>
+                    </div>
+
+                    <!-- Dashboard WS Latency -->
+                    <div class="latency-pill font-mono" id="latencyPill" title="Client UI Telemetry Latency">
+                        <i data-lucide="radio" class="icon-sm text-cyan"></i>
+                        <span class="ping-label">UI:</span>
+                        <span id="latencyValue">-- ms</span>
+                    </div>
+
+                    <div class="connection-status font-mono" id="wsStatus">
+                        <span class="status-dot"></span>
+                        <span id="wsStatusText">LIVE</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Metric Cards Grid -->
+            <!-- Main Metric Cards Grid (6-column responsive layout: 3 cards top, 2 cards bottom) -->
+            <main class="dashboard-grid">
+                
+                <!-- Card 1: Binance Direct High-Speed Spot Feed -->
+                <div class="card card-span-2 card-glow glass-panel">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <i data-lucide="trending-up" class="card-icon text-cyan"></i>
+                            <h3>BINANCE SPOT REFERENCE</h3>
+                        </div>
+                        <span class="ticker-tag" id="bnSymbol">BTCUSDT</span>
+                    </div>
+                    <div class="metric-main">
+                        <span class="metric-value font-mono" id="bnPrice">$0.00</span>
+                        <span class="metric-badge font-mono" id="bnVelocity">+0.00 $/s</span>
+                    </div>
+                    <div class="sparkline-wrapper">
+                        <canvas id="priceSparkline" height="42"></canvas>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">10s Momentum Return:</span>
+                        <span class="stat-val text-cyan" id="bnReturn">+0.000%</span>
+                    </div>
+                </div>
+
+                <!-- Card 2: Bayesian Fair Probability Model -->
+                <div class="card card-span-2 glass-panel">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <i data-lucide="sparkles" class="card-icon text-purple"></i>
+                            <h3>BAYESIAN PROBABILITY</h3>
+                        </div>
+                        <span class="badge badge-purple">SIGMOID</span>
+                    </div>
+                    <div class="prob-bar-container">
+                        <div class="prob-labels font-mono">
+                            <span class="text-cyan font-bold" id="probUpLabel">P(UP): 50.0%</span>
+                            <span class="text-pink font-bold" id="probDnLabel">P(DOWN): 50.0%</span>
+                        </div>
+                        <div class="prob-bar">
+                            <div class="prob-fill-up" id="probBarUp" style="width: 50%;"></div>
+                            <div class="prob-fill-dn" id="probBarDn" style="width: 50%;"></div>
+                        </div>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">Velocity Z-Score:</span>
+                        <span class="stat-val text-yellow" id="momScore">0.00</span>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">CLOB Spread:</span>
+                        <span class="stat-val text-muted" id="clobSpread">UP: $0.00 | DN: $0.00</span>
+                    </div>
+                </div>
+
+                <!-- Card 3: Complete-Set Spread Target -->
+                <div class="card card-span-2 glass-panel">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <i data-lucide="layers" class="card-icon text-green"></i>
+                            <h3>COMPLETE-SET TARGET</h3>
+                        </div>
+                        <span class="badge badge-green" id="edgeBadge">+4.0% ARB</span>
+                    </div>
+                    <div class="spread-box font-mono">
+                        <div class="spread-item">
+                            <span class="label">BID UP</span>
+                            <span class="val text-cyan" id="quoteUp">$0.00</span>
+                        </div>
+                        <div class="spread-math">+</div>
+                        <div class="spread-item">
+                            <span class="label">BID DOWN</span>
+                            <span class="val text-pink" id="quoteDn">$0.00</span>
+                        </div>
+                        <div class="spread-math">=</div>
+                        <div class="spread-item highlight">
+                            <span class="label">PAIR COST</span>
+                            <span class="val text-green" id="quoteSum">$0.000</span>
+                        </div>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">Max Cost Ceiling ($1.00 Payoff):</span>
+                        <span class="stat-val text-yellow font-bold" id="maxCostCap">$0.960</span>
+                    </div>
+                </div>
+
+                <!-- Card 4: Inventory & CTF Skew Management -->
+                <div class="card card-span-3 glass-panel">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <i data-lucide="boxes" class="card-icon text-pink"></i>
+                            <h3>INVENTORY & EXPOSURE</h3>
+                        </div>
+                        <span class="badge" id="imbalanceBadge">DELTA: 0.0</span>
+                    </div>
+                    <div class="inventory-grid font-mono">
+                        <div class="inv-block inv-block-up">
+                            <span class="label">UP SHARES</span>
+                            <span class="inv-val text-cyan" id="invUpShares">0.0</span>
+                            <span class="inv-sub" id="invUpCost">avg $0.000</span>
+                        </div>
+                        <div class="inv-block inv-block-dn">
+                            <span class="label">DOWN SHARES</span>
+                            <span class="inv-val text-pink" id="invDnShares">0.0</span>
+                            <span class="inv-sub" id="invDnCost">avg $0.000</span>
+                        </div>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">Complete Sets Merged ($1.00):</span>
+                        <span class="stat-val text-green font-bold" id="setsMerged">0</span>
+                    </div>
+                </div>
+
+                <!-- Card 5: Realized Arbitrage PnL & Real Stats -->
+                <div class="card card-span-3 card-glow-green glass-panel">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <i data-lucide="circle-dollar-sign" class="card-icon text-green"></i>
+                            <h3>REALIZED ARBITRAGE PNL</h3>
+                        </div>
+                        <span class="badge badge-green font-mono">SQLITE WAL</span>
+                    </div>
+                    <div class="metric-main">
+                        <span class="metric-value font-mono text-green" id="realizedPnl">+$0.00</span>
+                        <span class="metric-badge font-mono badge-active" id="pnlStatus">ACTIVE</span>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">Daily Loss Circuit Breaker:</span>
+                        <span class="stat-val text-red" id="stopLossCap">-$25.00</span>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">Active Capital in Risk / Cap:</span>
+                        <span class="stat-val text-cyan font-bold" id="capitalUsage">$0.00 / $300.00</span>
+                    </div>
+                </div>
+
+            </main>
+
+            <!-- Navigation Tabs for Logs -->
+            <div class="tabs-nav glass-panel">
+                <button class="tab-btn active" id="tabBtnTrades">
+                    <i data-lucide="receipt" class="icon-sm"></i>
+                    <span>Executed Trades (SQLite)</span>
+                </button>
+                <button class="tab-btn" id="tabBtnSets">
+                    <i data-lucide="layers" class="icon-sm"></i>
+                    <span>Complete-Sets Merge Ledger</span>
+                </button>
+                <button class="tab-btn" id="tabBtnAnalytics">
+                    <i data-lucide="bar-chart-3" class="icon-sm"></i>
+                    <span>Performance & Real Stats</span>
+                </button>
+                <button class="tab-btn" id="tabBtnMCP">
+                    <i data-lucide="cpu" class="icon-sm"></i>
+                    <span>MCP Agent Manager & Logs</span>
+                </button>
+            </div>
+
+            <!-- Section 1: Executed Trades Stream -->
+            <section class="log-section glass-panel" id="sectionTrades">
+                <div class="section-toolbar">
+                    <span class="toolbar-title font-mono">SQLITE EXECUTED ORDER FILLS</span>
+                    <span class="toolbar-count font-mono" id="tradeCountLabel">0 Fills</span>
+                </div>
+                <div class="table-container">
+                    <table class="data-table font-mono" id="tradeTable">
+                        <thead>
+                            <tr>
+                                <th>TIME</th>
+                                <th>SIDE</th>
+                                <th>PRICE</th>
+                                <th>SHARES</th>
+                                <th>COST (USD)</th>
+                                <th>FEE</th>
+                                <th>EXECUTION</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tradeBody">
+                            <tr><td colspan="7" class="text-center text-muted">Loading trade history from SQLite...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Section 2: Complete-Sets Merge Ledger -->
+            <section class="log-section glass-panel hidden" id="sectionSets">
+                <div class="section-toolbar">
+                    <span class="toolbar-title font-mono">GUARANTEED $1.00 CTF REDEMPTION LEDGER</span>
+                    <span class="toolbar-count font-mono" id="setsCountLabel">0 Merges</span>
+                </div>
+                <div class="table-container">
+                    <table class="data-table font-mono" id="setsTable">
+                        <thead>
+                            <tr>
+                                <th>TIMESTAMP</th>
+                                <th>SETS MERGED</th>
+                                <th>UP AVG COST</th>
+                                <th>DOWN AVG COST</th>
+                                <th>COMBINED COST</th>
+                                <th>PROFIT LOCKED</th>
+                                <th>CUMULATIVE PNL</th>
+                            </tr>
+                        </thead>
+                        <tbody id="setsBody">
+                            <tr><td colspan="7" class="text-center text-muted">No complete sets merged yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Section 3: Performance Analytics & Real Stats -->
+            <section class="log-section glass-panel hidden" id="sectionAnalytics">
+                <div class="section-toolbar">
+                    <span class="toolbar-title font-mono">DATABASE ANALYTICS & ARBITRAGE METRICS</span>
+                </div>
+                <div class="analytics-grid font-mono">
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">EXECUTED ORDERS</span>
+                        <span class="stat-number text-cyan" id="statTotalTrades">0</span>
+                        <span class="stat-sub" id="statTradeSides">UP: 0 | DOWN: 0</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">CUMULATIVE TURNOVER (VOLUME)</span>
+                        <span class="stat-number text-yellow" id="statTotalVolume">$0.00</span>
+                        <span class="stat-sub">Recycled From $300 Bankroll</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">COMPLETE SETS REDEEMED</span>
+                        <span class="stat-number text-green" id="statTotalSets">0.0</span>
+                        <span class="stat-sub">Redeemed @ $1.00 USD</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">AVG ACQUISITION PAIR COST</span>
+                        <span class="stat-number text-white" id="statAvgCost">$0.000</span>
+                        <span class="stat-sub">Target Ceiling: &le; $0.960</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">ARBITRAGE PROFIT MARGIN</span>
+                        <span class="stat-number text-green" id="statProfitMargin">0.00%</span>
+                        <span class="stat-sub">Guaranteed Spread</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">TOTAL EXCHANGE FEES</span>
+                        <span class="stat-number text-pink" id="statTotalFees">$0.00</span>
+                        <span class="stat-sub">Polygon Gas / CLOB Fees</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Section 4: MCP Agent Manager & Telemetry Logs -->
+            <section class="log-section glass-panel hidden" id="sectionMCP">
+                <div class="section-toolbar">
+                    <div class="toolbar-left-group">
+                        <span class="toolbar-title font-mono">MCP AGENT MANAGER & REQUEST/RESPONSE MONITORING</span>
+                        <span class="badge badge-purple font-mono">JSON-RPC 2.0</span>
+                    </div>
+                    <div class="toolbar-actions">
+                        <button class="btn btn-outline btn-sm" id="btnRefreshMCP" title="Refresh Keys and Invocations">
+                            <i data-lucide="refresh-cw" class="icon-xs"></i>
+                            <span>Refresh</span>
+                        </button>
+                        <button class="btn btn-primary btn-sm" id="btnOpenCreateKeyModal">
+                            <i data-lucide="key-round" class="icon-xs"></i>
+                            <span>Generate MCP Key</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- MCP Overview Stats -->
+                <div class="analytics-grid font-mono mcp-stats-grid">
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">ACTIVE API KEYS</span>
+                        <span class="stat-number text-cyan" id="mcpStatActiveKeys">0</span>
+                        <span class="stat-sub">Enabled Agent Clients</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">TOTAL INVOCATIONS</span>
+                        <span class="stat-number text-yellow" id="mcpStatTotalCalls">0</span>
+                        <span class="stat-sub">Logged in SQLite</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">AVG TOOL LATENCY</span>
+                        <span class="stat-number text-green" id="mcpStatAvgLatency">0.0 ms</span>
+                        <span class="stat-sub">Engine Execution Speed</span>
+                    </div>
+                    <div class="analytics-stat-card">
+                        <span class="stat-tag">SUCCESS RATE</span>
+                        <span class="stat-number text-white" id="mcpStatSuccessRate">100.0%</span>
+                        <span class="stat-sub" id="mcpStatErrors">0 Errors</span>
+                    </div>
+                </div>
+
+                <!-- Sub-Section A: Active MCP API Keys -->
+                <div class="mcp-sub-panel">
+                    <div class="sub-panel-header font-mono">
+                        <div class="panel-header-title">
+                            <i data-lucide="shield-check" class="icon-xs text-cyan"></i>
+                            <span>AUTHENTICATED MCP API KEYS</span>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table font-mono" id="mcpKeysTable">
+                            <thead>
+                                <tr>
+                                    <th>AGENT / NAME</th>
+                                    <th>KEY PREFIX</th>
+                                    <th>ROLE</th>
+                                    <th>STATUS</th>
+                                    <th>USAGE COUNT</th>
+                                    <th>LAST USED</th>
+                                    <th>ACTIONS</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mcpKeysBody">
+                                <tr><td colspan="7" class="text-center text-muted">Loading MCP API keys...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Sub-Section B: Live MCP Request & Response Inspector -->
+                <div class="mcp-sub-panel">
+                    <div class="sub-panel-header font-mono">
+                        <div class="panel-header-title">
+                            <i data-lucide="activity" class="icon-xs text-green"></i>
+                            <span>LIVE REQUEST & RESPONSE LOGS</span>
+                        </div>
+                        <div class="header-filter">
+                            <label for="mcpToolFilter" class="filter-label">Filter Tool:</label>
+                            <select id="mcpToolFilter" class="mcp-filter-select">
+                                <option value="">All MCP Tools</option>
+                                <option value="poly_get_status">poly_get_status</option>
+                                <option value="poly_get_inventory">poly_get_inventory</option>
+                                <option value="poly_get_trades_history">poly_get_trades_history</option>
+                                <option value="poly_get_complete_sets">poly_get_complete_sets</option>
+                                <option value="poly_get_analytics">poly_get_analytics</option>
+                                <option value="poly_emergency_stop">poly_emergency_stop</option>
+                                <option value="poly_resume_trading">poly_resume_trading</option>
+                                <option value="poly_update_risk_limits">poly_update_risk_limits</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table font-mono" id="mcpLogsTable">
+                            <thead>
+                                <tr>
+                                    <th>TIMESTAMP</th>
+                                    <th>AGENT / KEY</th>
+                                    <th>CLIENT IP</th>
+                                    <th>TOOL CALLED</th>
+                                    <th>STATUS</th>
+                                    <th>LATENCY</th>
+                                    <th>PAYLOAD INSPECTOR</th>
+                                </tr>
+                            </thead>
+                            <tbody id="mcpLogsBody">
+                                <tr><td colspan="7" class="text-center text-muted">No MCP calls logged yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Sub-Section C: Client Configuration Quick Setup -->
+                <div class="mcp-sub-panel">
+                    <div class="sub-panel-header font-mono">
+                        <div class="panel-header-title">
+                            <i data-lucide="globe" class="icon-xs text-cyan"></i>
+                            <span>REMOTE MCP URL & CLIENT CONFIGURATION (ZERO LOCAL PYTHON REQUIRED)</span>
+                        </div>
+                    </div>
+                    <div class="mcp-configs-grid font-mono">
+                        <div class="config-snippet-card">
+                            <div class="snippet-title">1. Remote MCP over SSE (Claude / Cursor / Antigravity / Cline)</div>
+                            <pre class="snippet-code"><code>{
+  "mcpServers": {
+    "poly-harvester": {
+      "url": "http://localhost:8443/mcp/sse",
+      "headers": {
+        "X-MCP-API-Key": "&lt;YOUR_MCP_API_KEY&gt;"
+      }
+    }
+  }
+}</code></pre>
+                        </div>
+                        <div class="config-snippet-card">
+                            <div class="snippet-title">2. Direct JSON-RPC 2.0 HTTP Endpoint</div>
+                            <pre class="snippet-code"><code>{
+  "mcpServers": {
+    "poly-harvester-rpc": {
+      "url": "http://localhost:8443/mcp",
+      "headers": {
+        "X-MCP-API-Key": "&lt;YOUR_MCP_API_KEY&gt;"
+      }
+    }
+  }
+}</code></pre>
+                        </div>
+                        <div class="config-snippet-card">
+                            <div class="snippet-title">3. Custom GPT / OpenAI Action Schema URL</div>
+                            <pre class="snippet-code"><code>OpenAPI 3.0 Schema: http://localhost:8443/mcp/openapi.json
+Tool Discovery Spec: http://localhost:8443/mcp/tools.json
+
+Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
+                        </div>
+                        <div class="config-snippet-card">
+                            <div class="snippet-title">4. Direct Tool Execution (cURL / Remote Python)</div>
+                            <pre class="snippet-code"><code>curl -X POST http://localhost:8443/api/mcp/execute \
+  -H "Content-Type: application/json" \
+  -H "X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;" \
+  -d '{"tool": "poly_get_status", "arguments": {}}'</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+
+    <!-- Login Authentication Modal -->
+    <div class="modal-overlay" id="authModal">
+        <div class="modal-card glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="shield-check" class="icon-lg text-cyan"></i>
+                    </div>
+                    <div>
+                        <h3>QUANT CONTROL AUTHENTICATION</h3>
+                        <p class="modal-subtitle">Log in with your credentials to control the trading engine.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Seeded Default Creds Banner -->
+            <div class="demo-creds-banner">
+                <span class="creds-label">Default Admin:</span>
+                <code class="creds-code">admin / polyharvester2026</code>
+                <button type="button" class="btn-autofill" id="btnAutofillAdmin">
+                    <i data-lucide="zap" class="icon-xs"></i>
+                    <span>Autofill</span>
+                </button>
+            </div>
+
+            <form id="loginForm" class="login-form">
+                <div class="form-group">
+                    <label for="loginUsername">Username</label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="user" class="input-icon"></i>
+                        <input type="text" id="loginUsername" placeholder="Enter username..." value="admin" required autocomplete="username">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="key-round" class="input-icon"></i>
+                        <input type="password" id="loginPassword" placeholder="Enter password..." value="polyharvester2026" required autocomplete="current-password">
+                    </div>
+                </div>
+                <div class="login-error-msg hidden font-mono" id="loginErrorMsg"></div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary btn-block" id="btnLoginSubmit">
+                        <i data-lucide="log-in" class="icon-sm"></i>
+                        <span>LOG IN & CONNECT</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Profile & Security Settings Modal -->
+    <div class="modal-overlay hidden" id="profileModal">
+        <div class="modal-card glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="user-cog" class="icon-lg text-cyan"></i>
+                    </div>
+                    <div>
+                        <h3>OPERATOR CREDENTIALS</h3>
+                        <p class="modal-subtitle">Update your username and/or security password.</p>
+                    </div>
+                </div>
+                <button class="btn-modal-close" id="btnCloseProfileModal" type="button">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
+            </div>
+
+            <form id="profileSettingsForm" class="login-form">
+                <div class="form-group">
+                    <label for="profCurrentUsername">Current Username</label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="user" class="input-icon"></i>
+                        <input type="text" id="profCurrentUsername" readonly class="input-readonly">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="profCurrentPassword">Current Password <span class="text-pink">*</span></label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="key-round" class="input-icon"></i>
+                        <input type="password" id="profCurrentPassword" placeholder="Enter current password to verify..." required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="profNewUsername">New Username (Optional)</label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="user-plus" class="input-icon"></i>
+                        <input type="text" id="profNewUsername" placeholder="Leave blank to keep unchanged">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="profNewPassword">New Password (Optional)</label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="lock" class="input-icon"></i>
+                        <input type="password" id="profNewPassword" placeholder="Min 6 characters...">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="profConfirmPassword">Confirm New Password</label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="shield-check" class="input-icon"></i>
+                        <input type="password" id="profConfirmPassword" placeholder="Re-enter new password...">
+                    </div>
+                </div>
+
+                <div class="login-error-msg hidden font-mono" id="profileErrorMsg"></div>
+
+                <div class="modal-actions modal-dialog-actions">
+                    <button type="button" class="btn btn-outline" id="btnCancelProfile">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btnSaveProfile">
+                        <i data-lucide="save" class="icon-sm"></i>
+                        <span>SAVE CHANGES</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Generate MCP API Key Modal -->
+    <div class="modal-overlay hidden" id="mcpCreateKeyModal">
+        <div class="modal-card glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="key-round" class="icon-lg text-cyan"></i>
+                    </div>
+                    <div>
+                        <h3>GENERATE MCP API KEY</h3>
+                        <p class="modal-subtitle">Create a secure API key for Claude, Cursor, or an AI agent.</p>
+                    </div>
+                </div>
+                <button class="btn-modal-close" id="btnCloseMcpKeyModal" type="button">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
+            </div>
+
+            <!-- Form to create key -->
+            <form id="mcpKeyForm" class="login-form">
+                <div class="form-group">
+                    <label for="mcpKeyName">Agent / Client Label <span class="text-pink">*</span></label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="tag" class="input-icon"></i>
+                        <input type="text" id="mcpKeyName" placeholder="e.g. Claude Desktop Copilot" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="mcpKeyRole">Access Scope / Role</label>
+                    <div class="input-icon-wrapper">
+                        <i data-lucide="shield" class="input-icon"></i>
+                        <select id="mcpKeyRole" class="mcp-select-input">
+                            <option value="read_write">Read & Write (Telemetry + Trade Controls)</option>
+                            <option value="read_only">Read-Only (Telemetry & Historical Stats Only)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Newly Generated Secret Display (Initially hidden) -->
+                <div class="generated-key-box hidden" id="generatedKeyBox">
+                    <div class="key-box-header">
+                        <i data-lucide="check-circle-2" class="icon-xs text-green"></i>
+                        <span>Secret API Key Generated — Copy Now!</span>
+                    </div>
+                    <div class="key-box-content">
+                        <code id="generatedKeyRaw" class="font-mono text-cyan">mcp_live_...</code>
+                        <button type="button" class="btn btn-sm btn-primary" id="btnCopyGeneratedKey">
+                            <i data-lucide="copy" class="icon-xs"></i>
+                            <span>Copy</span>
+                        </button>
+                    </div>
+                    <p class="key-box-warning font-mono">⚠️ This secret key will not be shown again. Store it securely in your MCP client config.</p>
+                </div>
+
+                <div class="login-error-msg hidden font-mono" id="mcpKeyErrorMsg"></div>
+
+                <div class="modal-actions modal-dialog-actions" id="mcpKeyActions">
+                    <button type="button" class="btn btn-outline" id="btnCancelMcpKey">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btnSubmitMcpKey">
+                        <i data-lucide="plus" class="icon-sm"></i>
+                        <span>GENERATE KEY</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MCP Request / Response Payload Inspector Modal -->
+    <div class="modal-overlay hidden" id="mcpPayloadModal">
+        <div class="modal-card modal-lg glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="terminal" class="icon-lg text-purple"></i>
+                    </div>
+                    <div>
+                        <h3 id="mcpPayloadModalTitle">MCP INVOCATION INSPECTOR</h3>
+                        <p class="modal-subtitle font-mono" id="mcpPayloadModalSubtitle">Tool: poly_get_status | 12 ms</p>
+                    </div>
+                </div>
+                <button class="btn-modal-close" id="btnClosePayloadModal" type="button">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
+            </div>
+
+            <div class="payload-inspector-body font-mono">
+                <div class="payload-block">
+                    <div class="payload-header">
+                        <span class="text-cyan">REQUEST ARGUMENTS (JSON)</span>
+                        <button type="button" class="btn-copy-sm" id="btnCopyReqArgs"><i data-lucide="copy" class="icon-xs"></i> Copy</button>
+                    </div>
+                    <pre class="json-code" id="mcpReqArgsJson"><code>{}</code></pre>
+                </div>
+
+                <div class="payload-block">
+                    <div class="payload-header">
+                        <span class="text-green">RESPONSE PAYLOAD (JSON)</span>
+                        <button type="button" class="btn-copy-sm" id="btnCopyResData"><i data-lucide="copy" class="icon-xs"></i> Copy</button>
+                    </div>
+                    <pre class="json-code" id="mcpResDataJson"><code>{}</code></pre>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline btn-block" id="btnClosePayloadModalBtn">Close Inspector</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Confirmation & Alert Modal -->
+    <div class="modal-overlay hidden" id="customConfirmModal">
+        <div class="modal-card modal-dialog glass-panel">
+            <div class="modal-dialog-icon-wrapper" id="confirmDialogIconWrapper">
+                <i data-lucide="alert-triangle" class="icon-xl" id="confirmDialogIcon"></i>
+            </div>
+            <h3 class="modal-dialog-title" id="confirmDialogTitle">Confirm Action</h3>
+            <p class="modal-dialog-message" id="confirmDialogMessage">Are you sure you want to proceed?</p>
+            <div class="modal-dialog-actions" id="confirmDialogActions">
+                <button class="btn btn-outline" id="btnConfirmCancel">Cancel</button>
+                <button class="btn btn-primary" id="btnConfirmAccept">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container font-mono" id="toastContainer"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

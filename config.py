@@ -1,6 +1,6 @@
 """
-Configuration parameters for the Polymarket Quant Engine with Binance Price Feed
-and Mandatory Risk Rules for $300 Capital Protection.
+Configuration parameters for the Poly-Harvester Quant Engine with Binance Price Feed,
+Mandatory Risk Safeguards, and Secure Remote Dashboard / MCP Server.
 """
 from dataclasses import dataclass, field
 import os
@@ -18,7 +18,7 @@ class BotConfig:
     dry_run: bool = True
 
     # 1. Primary Reference Asset Feed (Binance Direct High-Speed WebSocket)
-    binance_symbol: str = "BTCUSDT"  # Binance spot pair (e.g. BTCUSDT, ETHUSDT, SOLUSDT)
+    binance_symbol: str = "BTCUSDT"  # Binance spot pair (e.g. BTCUSDT, ETHUSDT)
 
     # 2. Polymarket Market Target (15-Minute Crypto Up/Down Contracts)
     target_market_slug: str = "btc-15m-up-down"
@@ -33,14 +33,22 @@ class BotConfig:
     max_bid_price: float = 0.95           # Highest acceptable bid price ($0.95)
 
     # 4. Mandatory Risk Rules & Sizing (Strict $300 Capital Safeguards)
-    order_size_shares: float = 25.0        # Rule 1: Max ~$11.25 per individual order (25 shares)
-    max_inventory_imbalance: float = 100.0 # Rule 2: Strict Inventory Cap (Max 100 unhedged shares / ~$46 max exposure)
-    daily_stop_loss_usd: float = 30.0      # Rule 3: Daily Stop-Loss ($30 max daily loss / 10% of $300 capital)
+    order_size_shares: float = 20.0        # Rule 1: Max ~$9.00 - $10.00 per individual order (20 shares)
+    max_inventory_imbalance: float = 60.0  # Rule 2: Strict Inventory Cap (Max 60 unhedged shares / ~$28 max exposure)
+    daily_stop_loss_usd: float = 25.0      # Rule 3: Daily Stop-Loss ($25 max daily loss / ~8.3% of $300 capital)
     inventory_risk_aversion: float = 0.003 # Avellaneda-Stoikov inventory penalty factor (gamma)
 
     # Momentum & Bayesian Model Parameters
     velocity_lookback_seconds: int = 10   # Window to measure spot price velocity (dPrice/dt)
     momentum_sensitivity: float = 2.5     # Scaling factor for Bayesian probability shift from spot velocity
+
+    # 5. Secure Dashboard & MCP Server Configuration
+    enable_dashboard: bool = True
+    dashboard_host: str = "0.0.0.0"
+    dashboard_port: int = 8443
+    dashboard_auth_token: str = field(
+        default_factory=lambda: os.getenv("DASHBOARD_AUTH_TOKEN", "poly-harvester-secure-key-2026")
+    )
 
     # Wallet / API Settings for Live Execution (When dry_run is False)
     private_key: str = field(default_factory=lambda: os.getenv("POLYMARKET_PRIVATE_KEY", ""))

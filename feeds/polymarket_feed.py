@@ -1,5 +1,5 @@
 """
-Async Polymarket CLOB Feed and Market Discovery client.
+Async Polymarket CLOB Feed and Market Discovery client with latency tracking.
 """
 import asyncio
 import json
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class PolymarketFeed:
     """
     Discovers active BTC/ETH short-term Up/Down markets on Polymarket,
-    and streams real-time order books (bids/asks/trades) via the CLOB WebSocket.
+    and streams real-time order books (bids/asks/trades) via the CLOB WebSocket with ping tracking.
     """
 
     def __init__(
@@ -33,6 +33,7 @@ class PolymarketFeed:
         self.market_title: str = "BTC Up or Down"
         self.market_end_time: Optional[float] = None
         self.market_slug: str = ""
+        self.latency_ms: int = 38
 
         # Order Book State
         self.up_best_bid: float = 0.50
@@ -46,33 +47,41 @@ class PolymarketFeed:
         # Connection Management
         self._running: bool = False
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
-        self._session: Optional[aiohttp.ClientSession] = None
 
     async def discover_active_crypto_market(self, search_term: str = "Bitcoin") -> bool:
         """
-        Queries Polymarket Gamma API to find the most active short-term Bitcoin Up/Down market.
+        Queries Polymarket Gamma API to find the most active short-term Bitcoin Up/Down market
+        across 15-minute, 1-hour, or 5-minute contract cycles.
         """
-        url = "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=20&order=volume24hr&ascending=false"
+        url = "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=30&order=volume24hr&ascending=false"
 
         def _fetch_gamma():
             import urllib.request
-            req = urllib.request.Request(url, headers={"User-Agent": "PolymarketQuant/1.0"})
+            t0 = time.time()
+            req = urllib.request.Request(url, headers={"User-Agent": "PolymarketQuant/1.2"})
             with urllib.request.urlopen(req, timeout=10) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                data = json.loads(resp.read().decode("utf-8"))
+                self.latency_ms = max(10, int((time.time() - t0) * 1000))
+                return data
 
         try:
             markets = await asyncio.to_thread(_fetch_gamma)
             for m in markets:
                 q = m.get("question", "").lower()
                 slug = m.get("slug", "").lower()
-                if ("bitcoin" in q or "btc" in q) and ("up" in q or "price" in q or "above" in q or "hit" in q or "dip" in q):
+                is_crypto = any(k in q or k in slug for k in ["bitcoin", "btc", "eth", "ethereum", "solana"])
+                is_up_down = any(k in q or k in slug for k in ["up or down", "up/down", "price", "above", "15m", "1h", "5m", "hit", "dip"])
+
+                if is_crypto and is_up_down:
                     tokens = m.get("clobTokenIds")
+                    if isinstance(tokens, str):
+                        tokens = json.loads(tokens)
                     if tokens and len(tokens) >= 2:
-                        self.token_id_up = tokens[0]
-                        self.token_id_down = tokens[1]
-                        self.market_title = m.get("question", "BTC Market")
+                        self.token_id_up = str(tokens[0])
+                        self.token_id_down = str(tokens[1])
+                        self.market_title = m.get("question", "BTC Up/Down Market")
                         self.market_slug = slug
-                        logger.info(f"Auto-discovered Polymarket: '{self.market_title}'")
+                        logger.info(f"Auto-discovered Polymarket ({slug}): '{self.market_title}'")
                         logger.info(f"Token UP: {self.token_id_up} | Token DOWN: {self.token_id_down}")
                         return True
         except Exception as e:
@@ -87,10 +96,13 @@ class PolymarketFeed:
 
         def _fetch_book(token_id: str):
             import urllib.request
+            t0 = time.time()
             url = f"https://clob.polymarket.com/book?token_id={token_id}"
             req = urllib.request.Request(url, headers={"User-Agent": "PolymarketQuant/1.0"})
             with urllib.request.urlopen(req, timeout=5) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                data = json.loads(resp.read().decode("utf-8"))
+                self.latency_ms = max(10, int((time.time() - t0) * 1000))
+                return data
 
         try:
             book_up = await asyncio.to_thread(_fetch_book, self.token_id_up)
@@ -137,11 +149,15 @@ class PolymarketFeed:
 
                         # Fetch initial REST book snapshot
                         await self.fetch_clob_midpoints()
+                        ping_task = asyncio.create_task(self._periodic_ping(ws))
 
-                        async for raw_msg in ws:
-                            if not self._running:
-                                break
-                            await self._handle_ws_message(raw_msg)
+                        try:
+                            async for raw_msg in ws:
+                                if not self._running:
+                                    break
+                                await self._handle_ws_message(raw_msg)
+                        finally:
+                            ping_task.cancel()
                 else:
                     # Fallback simulation updates
                     await self._simulate_live_ticks()
@@ -151,6 +167,20 @@ class PolymarketFeed:
             except Exception as e:
                 logger.warning(f"Polymarket WS error: {e}. Retrying in 5 seconds...")
                 await asyncio.sleep(5.0)
+
+    async def _periodic_ping(self, ws):
+        """Measures WebSocket roundtrip ping latency to Polymarket."""
+        while self._running and not ws.closed:
+            try:
+                t0 = time.time()
+                pong_waiter = await ws.ping()
+                await asyncio.wait_for(pong_waiter, timeout=5.0)
+                rtt = int((time.time() - t0) * 1000)
+                if rtt > 0:
+                    self.latency_ms = rtt
+            except Exception:
+                pass
+            await asyncio.sleep(4.0)
 
     async def _handle_ws_message(self, raw_msg: str):
         """Processes Polymarket orderbook updates."""
@@ -211,5 +241,3 @@ class PolymarketFeed:
         self._running = False
         if self._ws:
             await self._ws.close()
-        if self._session and not self._session.closed:
-            await self._session.close()

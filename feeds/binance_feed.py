@@ -1,6 +1,6 @@
 """
 Ultra-Low-Latency Binance WebSocket Feed client for real-time spot price and momentum tracking.
-Public, zero-authentication, direct 50ms bookTicker stream.
+Public, zero-authentication, direct 50ms bookTicker stream with ping latency tracking.
 """
 import asyncio
 import json
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class BinanceFeed:
     """
     Connects to Binance's direct public WebSocket stream (@bookTicker) for sub-50ms price
-    discovery, price velocity (dPrice/dt), and short-term volatility tracking.
+    discovery, price velocity (dPrice/dt), short-term volatility, and latency tracking.
     """
 
     def __init__(
@@ -34,6 +34,8 @@ class BinanceFeed:
         self.best_bid: float = 0.0
         self.best_ask: float = 0.0
         self.last_update_time: float = 0.0
+        self.latency_ms: int = 24
+        self._last_ping_send: float = 0.0
 
         # Ring buffer of historical ticks: (timestamp, price)
         self.price_history: Deque[Tuple[float, float]] = deque(maxlen=400)
@@ -52,17 +54,23 @@ class BinanceFeed:
                 logger.info(f"Connecting to Binance direct stream: {ws_url}...")
                 async with websockets.connect(
                     ws_url,
-                    ping_interval=20,
+                    ping_interval=15,
                     ping_timeout=10,
                     close_timeout=5,
                 ) as ws:
                     self._ws = ws
                     logger.info(f"Connected to Binance {self.symbol.upper()} feed.")
 
-                    async for message in ws:
-                        if not self._running:
-                            break
-                        await self._handle_message(message)
+                    # Start periodic ping task
+                    ping_task = asyncio.create_task(self._periodic_ping(ws))
+
+                    try:
+                        async for message in ws:
+                            if not self._running:
+                                break
+                            await self._handle_message(message)
+                    finally:
+                        ping_task.cancel()
 
             except asyncio.CancelledError:
                 logger.info("Binance feed cancelled.")
@@ -70,6 +78,20 @@ class BinanceFeed:
             except Exception as e:
                 logger.warning(f"Binance WS error: {e}. Reconnecting in 2 seconds...")
                 await asyncio.sleep(2.0)
+
+    async def _periodic_ping(self, ws):
+        """Measures WebSocket roundtrip ping latency to Binance."""
+        while self._running and not ws.closed:
+            try:
+                t0 = time.time()
+                pong_waiter = await ws.ping()
+                await asyncio.wait_for(pong_waiter, timeout=4.0)
+                rtt = int((time.time() - t0) * 1000)
+                if rtt > 0:
+                    self.latency_ms = rtt
+            except Exception:
+                pass
+            await asyncio.sleep(3.0)
 
     async def _handle_message(self, raw_msg: str):
         """Processes incoming Binance bookTicker frame."""

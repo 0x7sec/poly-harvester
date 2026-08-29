@@ -12,11 +12,11 @@ class QuotingEngine:
 
     def __init__(
         self,
-        target_edge: float = 0.015,
-        max_combined_cost: float = 0.985,
+        target_edge: float = 0.040,
+        max_combined_cost: float = 0.960,
         min_bid_price: float = 0.05,
         max_bid_price: float = 0.95,
-        max_imbalance: float = 150.0,
+        max_imbalance: float = 60.0,
     ):
         self.target_edge = target_edge
         self.max_combined_cost = max_combined_cost
@@ -48,10 +48,10 @@ class QuotingEngine:
         # Step 2: Invariant Check against existing inventory cost
         # If we already hold UP @ up_avg_cost, DOWN bid must strictly satisfy: Quote_DOWN <= MaxCost - up_avg_cost
         if net_imbalance > 0 and up_avg_cost > 0:
-            max_allowed_down = self.max_combined_cost - up_avg_cost
+            max_allowed_down = max(0.01, self.max_combined_cost - up_avg_cost)
             raw_quote_down = min(raw_quote_down, max_allowed_down)
         elif net_imbalance < 0 and down_avg_cost > 0:
-            max_allowed_up = self.max_combined_cost - down_avg_cost
+            max_allowed_up = max(0.01, self.max_combined_cost - down_avg_cost)
             raw_quote_up = min(raw_quote_up, max_allowed_up)
 
         # Step 3: Hard Complete-Set Cost constraint between the two quotes
@@ -65,7 +65,19 @@ class QuotingEngine:
         quote_up = round(max(self.min_bid_price, min(self.max_bid_price, raw_quote_up)), 2)
         quote_down = round(max(self.min_bid_price, min(self.max_bid_price, raw_quote_down)), 2)
 
-        # Ensure post-rounding constraint holds
+        # Step 4b: Strict post-rounding inventory check
+        if net_imbalance > 0 and up_avg_cost > 0:
+            if (quote_down + up_avg_cost) > self.max_combined_cost:
+                quote_down = round(max(0.01, self.max_combined_cost - up_avg_cost), 2)
+                if (quote_down + up_avg_cost) > self.max_combined_cost:
+                    quote_down = max(0.01, round(quote_down - 0.01, 2))
+        elif net_imbalance < 0 and down_avg_cost > 0:
+            if (quote_up + down_avg_cost) > self.max_combined_cost:
+                quote_up = round(max(0.01, self.max_combined_cost - down_avg_cost), 2)
+                if (quote_up + down_avg_cost) > self.max_combined_cost:
+                    quote_up = max(0.01, round(quote_up - 0.01, 2))
+
+        # Ensure post-rounding two-sided sum constraint holds
         if (quote_up + quote_down) > self.max_combined_cost:
             if quote_up >= quote_down:
                 quote_up = round(quote_up - 0.01, 2)
@@ -85,6 +97,10 @@ class QuotingEngine:
 
         projected_edge = round(1.00 - (quote_up + quote_down), 4)
 
+        # Step 6: 0x50f7 Style Passive Tail Grid Quotes (1c - 2c convex asymmetry)
+        tail_quote_up = 0.02 if q_up < 0.20 else 0.0
+        tail_quote_down = 0.02 if q_down < 0.20 else 0.0
+
         return {
             "quote_up": quote_up,
             "quote_down": quote_down,
@@ -93,4 +109,6 @@ class QuotingEngine:
             "projected_cost": round(quote_up + quote_down, 3),
             "projected_edge": projected_edge,
             "applied_skew": round(stoikov_skew, 4),
+            "tail_quote_up": tail_quote_up,
+            "tail_quote_down": tail_quote_down,
         }

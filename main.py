@@ -6,6 +6,7 @@ import logging
 import signal
 import sys
 import time
+from typing import Any, Dict, List, Optional
 
 try:
     from rich.console import Console
@@ -24,6 +25,9 @@ from models.inventory import InventoryManager
 from models.quoter import QuotingEngine
 from execution.paper_engine import PaperTradingEngine
 from backtest.recorder import TradeRecorder
+from dashboard.server import DashboardServer
+from storage.database import DatabaseManager
+from storage.cache import StateCache
 
 # Configure logging
 logging.basicConfig(
@@ -36,14 +40,33 @@ console = Console() if HAVE_RICH else None
 
 
 class PolymarketQuantEngine:
-    def __init__(self, config: BotConfig):
+    def __init__(self, config: BotConfig, db: Optional[DatabaseManager] = None, cache: Optional[StateCache] = None):
         self.config = config
 
-        # Components with Mandatory Risk Rules
+        # 1. Persistence & State Cache
+        self.db = db or DatabaseManager()
+        self.cache = cache or StateCache()
+
+        # Restore cached runtime overrides if available
+        cached_config = self.cache.get_runtime_config()
+        if cached_config:
+            if "order_size_shares" in cached_config:
+                self.config.order_size_shares = float(cached_config["order_size_shares"])
+            if "max_inventory_imbalance" in cached_config:
+                self.config.max_inventory_imbalance = float(cached_config["max_inventory_imbalance"])
+            if "max_combined_cost" in cached_config:
+                self.config.max_combined_cost = float(cached_config["max_combined_cost"])
+            if "daily_stop_loss_usd" in cached_config:
+                self.config.daily_stop_loss_usd = float(cached_config["daily_stop_loss_usd"])
+            logger.info(f"Restored runtime config overrides from Diskcache: {cached_config}")
+
+        # Components with Mandatory Risk Rules & SQLite Persistence
         self.inventory = InventoryManager(
             gamma=config.inventory_risk_aversion,
             max_imbalance=config.max_inventory_imbalance,
             daily_stop_loss=config.daily_stop_loss_usd,
+            max_combined_cost=config.max_combined_cost,
+            db=self.db,
         )
         self.fair_value_model = FairValueModel(
             momentum_sensitivity=config.momentum_sensitivity
@@ -58,6 +81,7 @@ class PolymarketQuantEngine:
         self.paper_engine = PaperTradingEngine(
             inventory=self.inventory,
             order_size_shares=config.order_size_shares,
+            db=self.db,
         )
         self.recorder = TradeRecorder(filepath=config.trade_log_file)
 
@@ -211,7 +235,17 @@ class PolymarketQuantEngine:
         self._running = True
         logger.info("Starting Polymarket Quant Engine with Binance Feed...")
 
-        # Start feeds
+        # 1. Start Web Dashboard if enabled
+        if self.config.enable_dashboard:
+            self.dashboard = DashboardServer(
+                engine=self,
+                host=self.config.dashboard_host,
+                port=self.config.dashboard_port,
+                auth_token=self.config.dashboard_auth_token,
+            )
+            asyncio.create_task(self.dashboard.start())
+
+        # 2. Start Feeds
         feed_tasks = [
             asyncio.create_task(self.binance_feed.start()),
             asyncio.create_task(self.polymarket_feed.start()),

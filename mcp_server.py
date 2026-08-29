@@ -1,0 +1,277 @@
+"""
+Model Context Protocol (MCP) Server for Poly-Harvester.
+Exposes real-time quant telemetry, SQLite trade history, complete-set ledger,
+performance analytics, risk control, and emergency circuit breaker tools over standard JSON-RPC 2.0 stdio.
+"""
+import asyncio
+import json
+import logging
+import sys
+from typing import Any, Dict, List, Optional
+
+# Ensure UTF-8 on Windows
+if sys.platform == "win32":
+    sys.stdin.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")
+
+logger = logging.getLogger("PolyHarvesterMCP")
+
+
+class PolyHarvesterMCPServer:
+    """
+    Standard MCP (Model Context Protocol) Server for Poly-Harvester.
+    Enables AI agents and remote clients to inspect live telemetry, query SQLite historical records,
+    and execute control overrides with persistent Diskcache backup.
+    """
+
+    def __init__(self, engine=None):
+        self.engine = engine
+
+    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        return [
+            {
+                "name": "poly_get_status",
+                "description": "Returns real-time engine status: Binance spot price, velocity, active quotes, complete sets merged, and net realized PnL.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "poly_get_inventory",
+                "description": "Returns current position breakdown: UP shares, DOWN shares, average cost, net imbalance, and Stoikov inventory skew.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "poly_get_trades_history",
+                "description": "Returns historical executed trades from SQLite database with pagination.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Number of trades to return (default: 25)."},
+                        "offset": {"type": "integer", "description": "Offset index for pagination (default: 0)."}
+                    },
+                },
+            },
+            {
+                "name": "poly_get_complete_sets",
+                "description": "Returns the complete-set merge ledger from SQLite, showing $1.00 redemptions, costs, and locked profits.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "description": "Number of records to return (default: 25)."}
+                    },
+                },
+            },
+            {
+                "name": "poly_get_analytics",
+                "description": "Returns cumulative quantitative performance analytics (total volume, sets merged, net PnL, average pair cost) from SQLite.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "poly_emergency_stop",
+                "description": "Emergency circuit breaker: immediately cancels all active limit quotes, halts quoting, and freezes trading.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "reason": {"type": "string", "description": "Reason for triggering emergency stop."}
+                    },
+                },
+            },
+            {
+                "name": "poly_resume_trading",
+                "description": "Resets stop-loss / pause status and resumes active market making and complete-set accumulation.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "poly_update_risk_limits",
+                "description": "Dynamically updates risk thresholds (order size, inventory cap, daily stop-loss, max complete-set cost) and persists to SQLite & Diskcache.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "order_size_shares": {"type": "number", "description": "Size in shares per limit order."},
+                        "max_inventory_imbalance": {"type": "number", "description": "Max unhedged shares allowed on one side."},
+                        "max_combined_cost": {"type": "number", "description": "Hard ceiling for Quote_UP + Quote_DOWN (e.g. 0.960)."},
+                        "daily_stop_loss_usd": {"type": "number", "description": "Max allowable daily drawdown in USD."},
+                    },
+                },
+            },
+        ]
+
+    async def handle_tool_call(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.engine:
+            return {"error": "Engine is not currently running or attached."}
+
+        if name == "poly_get_status":
+            inv = self.engine.inventory.get_summary()
+            quotes = self.engine.current_quotes
+            return {
+                "binance_price": self.engine.binance_feed.current_price,
+                "spot_velocity_usd_per_sec": self.engine.binance_feed.get_velocity(),
+                "fair_prob_up": self.engine.fair_prob.get("q_up", 0.50),
+                "fair_prob_down": self.engine.fair_prob.get("q_down", 0.50),
+                "active_quotes": {
+                    "quote_up": quotes.get("quote_up", 0.0),
+                    "quote_down": quotes.get("quote_down", 0.0),
+                    "projected_cost": quotes.get("projected_cost", 0.0),
+                    "projected_edge_pct": round(quotes.get("projected_edge", 0.0) * 100.0, 2),
+                },
+                "complete_sets_merged": inv["complete_sets_merged"],
+                "realized_arb_pnl": inv["realized_arb_pnl"],
+                "net_pnl": inv["net_pnl"],
+                "status": "STOPPED" if inv["is_stop_loss_triggered"] else "ACTIVE",
+            }
+
+        elif name == "poly_get_inventory":
+            return self.engine.inventory.get_summary()
+
+        elif name == "poly_get_trades_history":
+            limit = int(arguments.get("limit", 25))
+            offset = int(arguments.get("offset", 0))
+            if hasattr(self.engine, "db") and self.engine.db:
+                trades = self.engine.db.get_recent_trades(limit=limit, offset=offset)
+            else:
+                trades = self.engine.paper_engine.fill_history[-limit:]
+            return {"total_returned": len(trades), "trades": trades}
+
+        elif name == "poly_get_complete_sets":
+            limit = int(arguments.get("limit", 25))
+            if hasattr(self.engine, "db") and self.engine.db:
+                sets = self.engine.db.get_complete_sets(limit=limit)
+            else:
+                sets = []
+            return {"total_returned": len(sets), "complete_sets": sets}
+
+        elif name == "poly_get_analytics":
+            if hasattr(self.engine, "db") and self.engine.db:
+                return self.engine.db.get_analytics()
+            return self.engine.inventory.get_summary()
+
+        elif name == "poly_emergency_stop":
+            self.engine.inventory.is_stop_loss_triggered = True
+            self.engine.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+            reason = arguments.get("reason", "Manual emergency stop via MCP")
+            if hasattr(self.engine, "cache") and self.engine.cache:
+                self.engine.cache.set_bot_status(is_paused=True, is_stop_loss=True, reason=reason)
+            return {"success": True, "message": f"Trading halted and all orders canceled. Reason: {reason}"}
+
+        elif name == "poly_resume_trading":
+            self.engine.inventory.is_stop_loss_triggered = False
+            if hasattr(self.engine, "cache") and self.engine.cache:
+                self.engine.cache.set_bot_status(is_paused=False, is_stop_loss=False, reason="Resumed via MCP")
+            return {"success": True, "message": "Trading resumed. Market making engine active."}
+
+        elif name == "poly_update_risk_limits":
+            updated = []
+            updated_dict = {}
+
+            if "order_size_shares" in arguments:
+                val = float(arguments["order_size_shares"])
+                self.engine.config.order_size_shares = val
+                self.engine.paper_engine.order_size_shares = val
+                updated.append(f"order_size={val}")
+                updated_dict["order_size_shares"] = val
+
+            if "max_inventory_imbalance" in arguments:
+                val = float(arguments["max_inventory_imbalance"])
+                self.engine.config.max_inventory_imbalance = val
+                self.engine.inventory.max_imbalance = val
+                self.engine.quoter.max_imbalance = val
+                updated.append(f"max_imbalance={val}")
+                updated_dict["max_inventory_imbalance"] = val
+
+            if "max_combined_cost" in arguments:
+                val = float(arguments["max_combined_cost"])
+                self.engine.config.max_combined_cost = val
+                self.engine.quoter.max_combined_cost = val
+                self.engine.inventory.max_combined_cost = val
+                updated.append(f"max_cost={val}")
+                updated_dict["max_combined_cost"] = val
+
+            if "daily_stop_loss_usd" in arguments:
+                val = float(arguments["daily_stop_loss_usd"])
+                self.engine.config.daily_stop_loss_usd = val
+                self.engine.inventory.daily_stop_loss = val
+                updated.append(f"stop_loss=${val}")
+                updated_dict["daily_stop_loss_usd"] = val
+
+            # Persist to diskcache & SQLite
+            if hasattr(self.engine, "cache") and self.engine.cache:
+                current_cached = self.engine.cache.get_runtime_config() or {}
+                current_cached.update(updated_dict)
+                self.engine.cache.set_runtime_config(current_cached)
+
+            if hasattr(self.engine, "db") and self.engine.db:
+                self.engine.db.set_state("runtime_config", updated_dict)
+
+            return {"success": True, "updated_parameters": updated}
+
+        return {"error": f"Unknown tool: {name}"}
+
+    async def run_stdio_server(self):
+        """Runs the JSON-RPC stdio loop for MCP."""
+        while True:
+            try:
+                line = await asyncio.to_thread(sys.stdin.readline)
+                if not line:
+                    break
+                request = json.loads(line.strip())
+                req_id = request.get("id")
+                method = request.get("method")
+                params = request.get("params", {})
+
+                if method == "initialize":
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {
+                            "protocolVersion": "2024-11-05",
+                            "serverInfo": {"name": "poly-harvester-mcp", "version": "1.3.0"},
+                            "capabilities": {"tools": {}},
+                        },
+                    }
+                elif method == "tools/list":
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {"tools": self.get_tool_definitions()},
+                    }
+                elif method == "tools/call":
+                    tool_name = params.get("name")
+                    arguments = params.get("arguments", {})
+                    result = await self.handle_tool_call(tool_name, arguments)
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
+                    }
+                else:
+                    response = {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "error": {"code": -32601, "message": f"Method {method} not found"},
+                    }
+
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            except Exception as e:
+                logger.error(f"MCP Server error: {e}")
+
+
+if __name__ == "__main__":
+    from config import BotConfig
+    from main import PolymarketQuantEngine
+
+    config = BotConfig()
+    engine = PolymarketQuantEngine(config)
+    mcp = PolyHarvesterMCPServer(engine)
+    asyncio.run(mcp.run_stdio_server())
