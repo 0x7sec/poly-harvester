@@ -121,6 +121,7 @@ class PolymarketQuantEngine:
             token_id_up=config.token_id_up,
             token_id_down=config.token_id_down,
             auto_discover=config.auto_discover_active_market,
+            target_market_slug=config.target_market_slug,
             on_book_update_callback=self._on_polymarket_book,
         )
 

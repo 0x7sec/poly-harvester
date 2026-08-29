@@ -24,15 +24,17 @@ class PolymarketFeed:
         token_id_up: str = "",
         token_id_down: str = "",
         auto_discover: bool = True,
+        target_market_slug: str = "",
         on_book_update_callback: Optional[Callable[["PolymarketFeed"], None]] = None,
     ):
         self.token_id_up = token_id_up
         self.token_id_down = token_id_down
         self.auto_discover = auto_discover
+        self.target_market_slug = target_market_slug
         self.on_book_update_callback = on_book_update_callback
 
         # Market Info
-        self.market_title: str = "BTC Up or Down"
+        self.market_title: str = "BTC Up or Down 5m"
         self.market_end_time: Optional[float] = None
         self.market_slug: str = ""
         self.condition_id: str = ""
@@ -73,18 +75,15 @@ class PolymarketFeed:
         return OrderBook(bids=bids, asks=asks)
 
     def get_bid_depth_ahead(self, side: str, price: float) -> float:
-        """
-        Calculates total volume of existing bids sitting ahead of a new order at `price`.
-        Orders with bid price > `price`, or equal to `price` (FIFO priority), sit ahead.
-        """
-        book_bids = self.up_bids if side.upper() == "UP" else self.down_bids
+        """Calculates the cumulative maker volume ahead in queue at or better than quote price."""
         depth = 0.0
-        for b in book_bids:
-            p = b.get("price", 0.0)
-            sz = b.get("size", 0.0)
-            if p >= price:
-                depth += sz
-        return max(0.0, depth)
+        bids = self.up_bids if side.upper() == "UP" else self.down_bids
+        for b in bids:
+            if b["price"] >= price:
+                depth += b.get("size", 0.0)
+            else:
+                break
+        return depth
 
     def get_ask_depth_at_or_below(self, side: str, price: float) -> float:
         """
@@ -99,11 +98,15 @@ class PolymarketFeed:
                 depth += sz
         return max(0.0, depth)
 
-    def pop_new_trades(self) -> List[Dict[str, Any]]:
-        """Returns and clears all unconsumed real market trade prints."""
+    def get_unprocessed_trades(self) -> List[Dict[str, Any]]:
+        """Returns new trade prints since last check and clears internal buffer."""
         trades = list(self._unprocessed_trades)
         self._unprocessed_trades.clear()
         return trades
+
+    def pop_new_trades(self) -> List[Dict[str, Any]]:
+        """Alias for get_unprocessed_trades."""
+        return self.get_unprocessed_trades()
 
     def record_simulated_trade(self, side: str, price: float, size: float = 20.0):
         """Helper to record a trade print."""
@@ -116,25 +119,68 @@ class PolymarketFeed:
         self.trade_events.append(evt)
         self._unprocessed_trades.append(evt)
 
-    async def discover_active_crypto_market(self, search_term: str = "Bitcoin") -> bool:
+    async def discover_active_crypto_market(self, search_slug: Optional[str] = None) -> bool:
         """
-        Queries Polymarket Gamma API to find the most active short-term Bitcoin Up/Down market
-        across 15-minute, 1-hour, or 5-minute contract cycles.
+        Discovers the live active short-term Bitcoin Up/Down market (5-minute or 15-minute rolling slots)
+        or a specific slug from Polymarket Gamma API.
         """
-        url = "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=40&order=volume24hr&ascending=false"
-
-        def _fetch_gamma():
+        def _fetch_url(url: str):
             import urllib.request
             t0 = time.time()
             req = urllib.request.Request(url, headers={"User-Agent": "PolymarketQuant/1.2"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 self.latency_ms = max(10, int((time.time() - t0) * 1000))
                 return data
 
+        candidate_slugs = []
+
+        # 1. Check explicit slug if configured
+        target = search_slug or self.target_market_slug
+        if target and target.strip() and target.strip() not in ("btc-15m-up-down", "btc-5m-up-down"):
+            candidate_slugs.append(target.strip())
+
+        # 2. Compute rolling 5m and 15m deterministic time slots
+        now_ts = int(time.time())
+        current_5m = (now_ts // 300) * 300
+        next_5m = current_5m + 300
+        current_15m = (now_ts // 900) * 900
+        next_15m = current_15m + 900
+
+        candidate_slugs.extend([
+            f"btc-updown-5m-{current_5m}",
+            f"btc-updown-5m-{next_5m}",
+            f"btc-updown-15m-{current_15m}",
+            f"btc-updown-15m-{next_15m}",
+        ])
+
+        # Try discrete short-term slug endpoints first
+        for slug in candidate_slugs:
+            try:
+                events = await asyncio.to_thread(_fetch_url, f"https://gamma-api.polymarket.com/events?slug={slug}")
+                if events and isinstance(events, list) and len(events) > 0:
+                    e = events[0]
+                    for m in e.get("markets", []):
+                        if m.get("active", True) and not m.get("closed", False):
+                            tokens = m.get("clobTokenIds")
+                            if isinstance(tokens, str):
+                                tokens = json.loads(tokens)
+                            if tokens and len(tokens) >= 2:
+                                self.token_id_up = str(tokens[0])
+                                self.token_id_down = str(tokens[1])
+                                self.market_title = e.get("title") or m.get("question", "Bitcoin Up or Down 5m")
+                                self.market_slug = e.get("slug") or m.get("slug", slug)
+                                self.condition_id = str(m.get("conditionId", ""))
+                                logger.info(f"🎯 Target Short-Term Contract ({self.market_slug}): '{self.market_title}'")
+                                logger.info(f"Condition ID: {self.condition_id} | Token UP: {self.token_id_up} | Token DOWN: {self.token_id_down}")
+                                return True
+            except Exception as exc:
+                logger.debug(f"Slug check error for {slug}: {exc}")
+
+        # 3. Fallback to top volume crypto markets if 5m/15m are unavailable
+        url = "https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=40&order=volume24hr&ascending=false"
         try:
-            markets = await asyncio.to_thread(_fetch_gamma)
-            # Prioritize Bitcoin specific short term markets first
+            markets = await asyncio.to_thread(_fetch_url, url)
             candidates = []
             for m in markets:
                 q = m.get("question", "").lower()
@@ -171,7 +217,7 @@ class PolymarketFeed:
                 logger.info(f"Condition ID: {self.condition_id} | Token UP: {self.token_id_up} | Token DOWN: {self.token_id_down}")
                 return True
         except Exception as e:
-            logger.warning(f"Error during auto-discovery: {e}. Using configured tokens or mock simulation.")
+            logger.warning(f"Error during auto-discovery fallback: {e}.")
 
         return False
 
