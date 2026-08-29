@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables & keys
+.env
+*.key
+*.pem
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Logs and transient trade data
+*.log
+trades_simulated.csv
+benchmark_*_trades.csv
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
