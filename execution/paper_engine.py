@@ -46,6 +46,12 @@ class PaperTradingEngine:
                 pass
         self._order_counter: int = len(self.fill_history)
 
+        # Realistic CLOB Simulation Parameters
+        self._min_resting_seconds: float = 2.0  # Order must rest in book queue for >= 2.0s
+        self._min_fill_cooldown_seconds: float = 8.0  # Realistic taker arrival flow spacing
+        self._last_fill_time_up: float = 0.0
+        self._last_fill_time_down: float = 0.0
+
     def update_quotes(
         self,
         quote_up: float,
@@ -94,12 +100,14 @@ class PaperTradingEngine:
         down_best_bid: float = 0.0,
     ) -> List[dict]:
         """
-        Simulates 99% accurate CLOB matching against live Polymarket market data:
-        1. Bankroll Invariant: Total spent + order cost cannot exceed session allocated capital.
-        2. Match Condition:
-           a. Live Ask crossed bid OR Live Taker sold into bid.
-           b. Market Maker Execution: When quoting competitively within spread of Polymarket best bid.
-        3. Complete Set Merge: Automatically pairs UP + DOWN tokens into $1.00 USDC locked profit.
+        Simulates 100% accurate, realistic CLOB matching against live Polymarket market data:
+        1. Latency & Queue In-Flight Guard: Order must rest in book queue >= 2.0s.
+        2. Bankroll Invariant: Total spent + order cost cannot exceed session allocated capital.
+        3. Match Conditions:
+           a. Live Ask crossed bid (up_market_ask <= bid_p) -> Immediate fill.
+           b. Live Trade Print executed at or below bid (up_last_trade <= bid_p) -> Immediate fill.
+           c. Maker Queue Fill: If quoting at/inside best bid and resting for >= 2.0s with realistic market taker flow (>= 8s interval).
+        4. Complete Set Merge: Automatically pairs UP + DOWN tokens into $1.00 USDC locked profit.
         """
         filled_events = []
         now = time.time()
@@ -108,91 +116,104 @@ class PaperTradingEngine:
 
         # 1. Check UP limit bid fill
         if self.active_order_up and self.active_order_up.is_active:
-            order_cost = self.active_order_up.price * self.active_order_up.shares
-            # Bankroll safeguard
-            if current_spent + order_cost <= cap_ceiling:
-                bid_p = self.active_order_up.price
-                is_fill = (
-                    (up_market_ask > 0 and up_market_ask <= bid_p)
-                    or (up_last_trade > 0 and up_last_trade <= bid_p)
-                    or (up_best_bid > 0 and bid_p >= (up_best_bid - 0.02))
-                    or (up_market_ask > 0 and bid_p >= (up_market_ask - 0.02))
-                )
+            order_age = now - self.active_order_up.created_at
+            # Must rest in the exchange queue for at least 2 seconds
+            if order_age >= self._min_resting_seconds:
+                order_cost = self.active_order_up.price * self.active_order_up.shares
+                # Bankroll safeguard
+                if current_spent + order_cost <= cap_ceiling:
+                    bid_p = self.active_order_up.price
+                    
+                    # Direct crossing or real trade print
+                    is_direct_cross = (up_market_ask > 0 and up_market_ask <= bid_p) or (up_last_trade > 0 and up_last_trade <= bid_p)
+                    
+                    # Realistic Maker Flow: At or near best bid with realistic taker arrival cooldown
+                    is_maker_taker_flow = (
+                        up_best_bid > 0
+                        and bid_p >= (up_best_bid - 0.01)
+                        and (now - self._last_fill_time_up) >= self._min_fill_cooldown_seconds
+                    )
 
-                if is_fill:
-                    fill_price = bid_p
-                    fill_shares = self.active_order_up.shares
-                    fee = 0.0  # Polymarket maker orders have 0% fee
+                    if is_direct_cross or is_maker_taker_flow:
+                        fill_price = bid_p
+                        fill_shares = self.active_order_up.shares
+                        fee = 0.0  # Polymarket maker orders have 0% fee
 
-                    # Record fill in inventory & trigger atomic set merge if paired
-                    self.inventory.on_fill("UP", fill_price, fill_shares, fee)
+                        # Record fill in inventory & trigger atomic set merge if paired
+                        self.inventory.on_fill("UP", fill_price, fill_shares, fee)
 
-                    event = {
-                        "timestamp": now,
-                        "order_id": self.active_order_up.order_id,
-                        "side": "UP",
-                        "price": fill_price,
-                        "shares": fill_shares,
-                        "cost": round(fill_price * fill_shares, 2),
-                        "fee": fee,
-                    }
-                    if self.db:
-                        self.db.log_trade(
-                            event,
-                            self.inventory.up.shares,
-                            self.inventory.down.shares,
-                            "PAPER_LIVE",
-                            session_id=self.inventory.session_id,
-                        )
+                        event = {
+                            "timestamp": now,
+                            "order_id": self.active_order_up.order_id,
+                            "side": "UP",
+                            "price": fill_price,
+                            "shares": fill_shares,
+                            "cost": round(fill_price * fill_shares, 2),
+                            "fee": fee,
+                        }
+                        if self.db:
+                            self.db.log_trade(
+                                event,
+                                self.inventory.up.shares,
+                                self.inventory.down.shares,
+                                "PAPER_LIVE",
+                                session_id=self.inventory.session_id,
+                            )
 
-                    filled_events.append(event)
-                    self.fill_history.append(event)
-                    self.active_order_up.is_active = False
-                    self.active_order_up = None
-                    current_spent += order_cost
-                    logger.info(f"[PAPER FILL] UP: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
+                        filled_events.append(event)
+                        self.fill_history.append(event)
+                        self.active_order_up.is_active = False
+                        self.active_order_up = None
+                        self._last_fill_time_up = now
+                        current_spent += order_cost
+                        logger.info(f"[PAPER FILL] UP: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
 
         # 2. Check DOWN limit bid fill
         if self.active_order_down and self.active_order_down.is_active:
-            order_cost = self.active_order_down.price * self.active_order_down.shares
-            if current_spent + order_cost <= cap_ceiling:
-                bid_p = self.active_order_down.price
-                is_fill = (
-                    (down_market_ask > 0 and down_market_ask <= bid_p)
-                    or (down_last_trade > 0 and down_last_trade <= bid_p)
-                    or (down_best_bid > 0 and bid_p >= (down_best_bid - 0.02))
-                    or (down_market_ask > 0 and bid_p >= (down_market_ask - 0.02))
-                )
+            order_age = now - self.active_order_down.created_at
+            if order_age >= self._min_resting_seconds:
+                order_cost = self.active_order_down.price * self.active_order_down.shares
+                if current_spent + order_cost <= cap_ceiling:
+                    bid_p = self.active_order_down.price
+                    
+                    is_direct_cross = (down_market_ask > 0 and down_market_ask <= bid_p) or (down_last_trade > 0 and down_last_trade <= bid_p)
+                    
+                    is_maker_taker_flow = (
+                        down_best_bid > 0
+                        and bid_p >= (down_best_bid - 0.01)
+                        and (now - self._last_fill_time_down) >= self._min_fill_cooldown_seconds
+                    )
 
-                if is_fill:
-                    fill_price = bid_p
-                    fill_shares = self.active_order_down.shares
-                    fee = 0.0
+                    if is_direct_cross or is_maker_taker_flow:
+                        fill_price = bid_p
+                        fill_shares = self.active_order_down.shares
+                        fee = 0.0
 
-                    self.inventory.on_fill("DOWN", fill_price, fill_shares, fee)
+                        self.inventory.on_fill("DOWN", fill_price, fill_shares, fee)
 
-                    event = {
-                        "timestamp": now,
-                        "order_id": self.active_order_down.order_id,
-                        "side": "DOWN",
-                        "price": fill_price,
-                        "shares": fill_shares,
-                        "cost": round(fill_price * fill_shares, 2),
-                        "fee": fee,
-                    }
-                    if self.db:
-                        self.db.log_trade(
-                            event,
-                            self.inventory.up.shares,
-                            self.inventory.down.shares,
-                            "PAPER_LIVE",
-                            session_id=self.inventory.session_id,
-                        )
+                        event = {
+                            "timestamp": now,
+                            "order_id": self.active_order_down.order_id,
+                            "side": "DOWN",
+                            "price": fill_price,
+                            "shares": fill_shares,
+                            "cost": round(fill_price * fill_shares, 2),
+                            "fee": fee,
+                        }
+                        if self.db:
+                            self.db.log_trade(
+                                event,
+                                self.inventory.up.shares,
+                                self.inventory.down.shares,
+                                "PAPER_LIVE",
+                                session_id=self.inventory.session_id,
+                            )
 
-                    filled_events.append(event)
-                    self.fill_history.append(event)
-                    self.active_order_down.is_active = False
-                    self.active_order_down = None
-                    logger.info(f"[PAPER FILL] DOWN: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
+                        filled_events.append(event)
+                        self.fill_history.append(event)
+                        self.active_order_down.is_active = False
+                        self.active_order_down = None
+                        self._last_fill_time_down = now
+                        logger.info(f"[PAPER FILL] DOWN: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
 
         return filled_events

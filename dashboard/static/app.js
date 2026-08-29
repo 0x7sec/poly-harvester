@@ -547,16 +547,23 @@ function updateDashboard(data) {
         const dnSh = data.inventory.down_shares || 0;
         const dnC = data.inventory.down_avg_cost || 0;
         const imb = data.inventory.net_imbalance || 0;
-        const sets = data.inventory.complete_sets_merged || 0;
+        
+        // Bind to active isolated session analytics so new sessions start at 0
+        const sets = (data.analytics && data.analytics.total_complete_sets_merged !== undefined)
+            ? data.analytics.total_complete_sets_merged
+            : (data.inventory.complete_sets_merged || 0);
 
         invUpShares.textContent = upSh.toFixed(1);
         invUpCost.textContent = `avg $${upC.toFixed(3)}`;
         invDnShares.textContent = dnSh.toFixed(1);
         invDnCost.textContent = `avg $${dnC.toFixed(3)}`;
         imbalanceBadge.textContent = `DELTA: ${imb >= 0 ? '+' : ''}${imb.toFixed(1)}`;
-        setsMerged.textContent = sets.toLocaleString();
+        setsMerged.textContent = Number(sets).toLocaleString();
 
-        const pnl = data.inventory.realized_arb_pnl || 0;
+        const pnl = (data.analytics && data.analytics.realized_arbitrage_pnl !== undefined)
+            ? data.analytics.realized_arbitrage_pnl
+            : (data.inventory.realized_arb_pnl || 0);
+
         realizedPnl.textContent = `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
         const isPaused = data.inventory.is_stop_loss_triggered;
