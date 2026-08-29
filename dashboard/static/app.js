@@ -620,6 +620,11 @@ function updateDashboard(data) {
             geoBadge.textContent = isBlocked ? `RESTRICTED (${countryCode})` : `ELIGIBLE (${countryCode})`;
             geoBadge.className = isBlocked ? "metric-badge font-mono text-pink" : "metric-badge font-mono badge-active";
         }
+        const cardGeo = document.getElementById("polyCardGeoStatus");
+        if (cardGeo) {
+            cardGeo.textContent = isBlocked ? `RESTRICTED (${countryCode})` : `ELIGIBLE (${countryCode})`;
+            cardGeo.className = isBlocked ? "stat-val text-pink font-bold" : "stat-val text-green font-bold";
+        }
 
         // Rate Limit Tokens
         const rl = sdk.rate_limits || {};

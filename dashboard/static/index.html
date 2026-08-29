@@ -201,21 +201,7 @@
                 </div>
 
                 <div class="nav-right">
-                    <!-- Compact Stack 1: Feeds Latency (Binance / Poly) -->
-                    <div class="top-stack-pill font-mono" title="Direct Reference & CLOB Latencies">
-                        <div class="top-stack-row">
-                            <i data-lucide="zap" class="icon-2xs text-yellow"></i>
-                            <span class="stack-label">BINANCE:</span>
-                            <strong class="text-yellow" id="binancePingVal">-- ms</strong>
-                        </div>
-                        <div class="top-stack-row">
-                            <i data-lucide="activity" class="icon-2xs text-purple"></i>
-                            <span class="stack-label">POLY:</span>
-                            <strong class="text-purple" id="polyPingVal">-- ms</strong>
-                        </div>
-                    </div>
-
-                    <!-- Compact Stack 2: UI Ping & Stream Status -->
+                    <!-- Compact Stack: UI Ping & Stream Status -->
                     <div class="top-stack-pill font-mono" title="Client UI Latency & Telemetry Stream">
                         <div class="top-stack-row">
                             <i data-lucide="radio" class="icon-2xs text-cyan"></i>
@@ -226,20 +212,6 @@
                             <span class="status-dot-sm"></span>
                             <span class="stack-label">STREAM:</span>
                             <strong class="text-green" id="wsStatusText">ACTIVE</strong>
-                        </div>
-                    </div>
-
-                    <!-- Compact Stack 3: Geo & Rate Limit Tokens -->
-                    <div class="top-stack-pill font-mono" id="polyGeoPill" title="Polymarket Geoblock & Order Tokens">
-                        <div class="top-stack-row">
-                            <i data-lucide="globe" class="icon-2xs text-cyan"></i>
-                            <span class="stack-label">GEO:</span>
-                            <strong class="text-green" id="polyGeoVal">ELIGIBLE (PK)</strong>
-                        </div>
-                        <div class="top-stack-row">
-                            <i data-lucide="gauge" class="icon-2xs text-purple"></i>
-                            <span class="stack-label">TOKENS:</span>
-                            <strong class="text-purple" id="polyRateVal">60/60</strong>
                         </div>
                     </div>
                 </div>
@@ -256,7 +228,13 @@
                             <i data-lucide="trending-up" class="card-icon text-cyan"></i>
                             <h3>BINANCE SPOT REFERENCE</h3>
                         </div>
-                        <span class="ticker-tag" id="bnSymbol">BTCUSDT</span>
+                        <div class="card-header-actions">
+                            <div class="card-ping-badge font-mono" id="binancePingPill" title="Binance Direct WebSocket Latency">
+                                <i data-lucide="zap" class="icon-2xs text-yellow"></i>
+                                <strong class="text-yellow" id="binancePingVal">-- ms</strong>
+                            </div>
+                            <span class="ticker-tag" id="bnSymbol">BTCUSDT</span>
+                        </div>
                     </div>
                     <div class="metric-main">
                         <span class="metric-value font-mono" id="bnPrice">$0.00</span>
@@ -388,23 +366,33 @@
                             <i data-lucide="wallet" class="card-icon text-yellow"></i>
                             <h3>POLYMARKET WALLET</h3>
                         </div>
-                        <button class="badge badge-purple font-mono btn-badge-clickable" id="btnOpenPolyConfig" type="button" title="Configure Polymarket SDK & Live Credentials">
-                            <span class="mode-indicator mode-paper" id="polyModeDot"></span>
-                            <span id="polyCardModeBadge">PAPER</span>
-                            <i data-lucide="settings" class="icon-2xs"></i>
-                        </button>
+                        <div class="card-header-actions">
+                            <div class="card-ping-badge font-mono" id="polyPingPill" title="Polymarket CLOB Feed Latency">
+                                <i data-lucide="activity" class="icon-2xs text-purple"></i>
+                                <strong class="text-purple" id="polyPingVal">-- ms</strong>
+                            </div>
+                            <button class="badge badge-purple font-mono btn-badge-clickable" id="btnOpenPolyConfig" type="button" title="Configure Polymarket SDK & Live Credentials">
+                                <span class="mode-indicator mode-paper" id="polyModeDot"></span>
+                                <span id="polyCardModeBadge">PAPER</span>
+                                <i data-lucide="settings" class="icon-2xs"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="metric-main">
                         <span class="metric-value font-mono text-yellow" id="polyUsdcBalance">$300.00</span>
-                        <span class="metric-badge font-mono badge-active" id="polyGeoBadge">ELIGIBLE</span>
+                        <span class="metric-badge font-mono badge-active" id="polyGeoBadge">ELIGIBLE (PK)</span>
                     </div>
                     <div class="stat-row font-mono">
                         <span class="stat-label">Signer / Address:</span>
                         <span class="stat-val text-muted" id="polyCardWalletAddr" title="Polymarket Signer Address">Paper Simulation (Safe)</span>
                     </div>
                     <div class="stat-row font-mono">
-                        <span class="stat-label">CLOB Rate Limit:</span>
-                        <span class="stat-val text-cyan font-bold" id="polyCardRateTokens">60/60 Tokens (Standard)</span>
+                        <span class="stat-label">CLOB Order Tokens:</span>
+                        <span class="stat-val text-purple font-bold" id="polyCardRateTokens">60/60 Tokens (Standard)</span>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">Geographic Compliance:</span>
+                        <span class="stat-val text-green font-bold" id="polyCardGeoStatus">ELIGIBLE (PK)</span>
                     </div>
                 </div>
 
