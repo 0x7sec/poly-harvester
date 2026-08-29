@@ -183,8 +183,13 @@ class PolymarketFeed:
             book_up = await asyncio.to_thread(_fetch_book, self.token_id_up)
             bids = book_up.get("bids", [])
             asks = book_up.get("asks", [])
-            self.up_bids = [{"price": float(b["price"]), "size": float(b.get("size", 100.0))} for b in bids if "price" in b]
-            self.up_asks = [{"price": float(a["price"]), "size": float(a.get("size", 100.0))} for a in asks if "price" in a]
+            parsed_bids = [{"price": float(b["price"]), "size": float(b.get("size", 100.0))} for b in bids if "price" in b]
+            parsed_asks = [{"price": float(a["price"]), "size": float(a.get("size", 100.0))} for a in asks if "price" in a]
+            parsed_bids.sort(key=lambda x: x["price"], reverse=True)
+            parsed_asks.sort(key=lambda x: x["price"], reverse=False)
+
+            self.up_bids = parsed_bids
+            self.up_asks = parsed_asks
             if self.up_bids:
                 self.up_best_bid = self.up_bids[0]["price"]
             if self.up_asks:
@@ -193,8 +198,13 @@ class PolymarketFeed:
             book_down = await asyncio.to_thread(_fetch_book, self.token_id_down)
             bids = book_down.get("bids", [])
             asks = book_down.get("asks", [])
-            self.down_bids = [{"price": float(b["price"]), "size": float(b.get("size", 100.0))} for b in bids if "price" in b]
-            self.down_asks = [{"price": float(a["price"]), "size": float(a.get("size", 100.0))} for a in asks if "price" in a]
+            parsed_bids = [{"price": float(b["price"]), "size": float(b.get("size", 100.0))} for b in bids if "price" in b]
+            parsed_asks = [{"price": float(a["price"]), "size": float(a.get("size", 100.0))} for a in asks if "price" in a]
+            parsed_bids.sort(key=lambda x: x["price"], reverse=True)
+            parsed_asks.sort(key=lambda x: x["price"], reverse=False)
+
+            self.down_bids = parsed_bids
+            self.down_asks = parsed_asks
             if self.down_bids:
                 self.down_best_bid = self.down_bids[0]["price"]
             if self.down_asks:
@@ -273,6 +283,8 @@ class PolymarketFeed:
                 asks = msg.get("asks", [])
                 parsed_bids = [{"price": float(b["price"]), "size": float(b.get("size", 100.0))} for b in bids if "price" in b]
                 parsed_asks = [{"price": float(a["price"]), "size": float(a.get("size", 100.0))} for a in asks if "price" in a]
+                parsed_bids.sort(key=lambda x: x["price"], reverse=True)
+                parsed_asks.sort(key=lambda x: x["price"], reverse=False)
 
                 if asset_id == self.token_id_up:
                     if parsed_bids:
