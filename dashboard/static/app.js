@@ -637,9 +637,14 @@ function updateDashboard(data) {
         // Wallet Address
         const cardWalletAddr = document.getElementById("polyCardWalletAddr");
         if (cardWalletAddr) {
-            const wa = sdk.wallet_address || "Not Configured";
-            cardWalletAddr.textContent = (wa && wa.length > 10) ? `${wa.slice(0, 6)}...${wa.slice(-4)}` : wa;
-            cardWalletAddr.title = wa;
+            const wa = sdk.wallet_address;
+            if (wa && wa !== "Not configured" && wa.length > 10) {
+                cardWalletAddr.textContent = `${wa.slice(0, 6)}...${wa.slice(-4)}`;
+                cardWalletAddr.title = wa;
+            } else {
+                cardWalletAddr.textContent = isLive ? "Live Signer Pending" : "Paper Simulation (Safe)";
+                cardWalletAddr.title = isLive ? "Configure Private Key in Settings" : "Zero Risk Simulated Environment";
+            }
         }
 
         // Execution Mode Pill & Badge
