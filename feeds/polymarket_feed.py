@@ -27,6 +27,7 @@ class PolymarketFeed:
         target_market_slug: str = "",
         target_timeframe: str = "5M",
         on_book_update_callback: Optional[Callable[["PolymarketFeed"], None]] = None,
+        on_rollover_callback: Optional[Callable] = None,
     ):
         self.token_id_up = token_id_up
         self.token_id_down = token_id_down
@@ -34,6 +35,7 @@ class PolymarketFeed:
         self.target_market_slug = target_market_slug
         self.target_timeframe = target_timeframe.upper().strip()
         self.on_book_update_callback = on_book_update_callback
+        self.on_rollover_callback = on_rollover_callback
 
         # Market Info
         self.market_title: str = "BTC Up or Down"
@@ -238,6 +240,9 @@ class PolymarketFeed:
                             if isinstance(tokens, str):
                                 tokens = json.loads(tokens)
                             if tokens and len(tokens) >= 2:
+                                old_slug = self.market_slug
+                                old_title = self.market_title
+
                                 self.token_id_up = str(tokens[0])
                                 self.token_id_down = str(tokens[1])
                                 self.market_title = e.get("title") or m.get("question", "Bitcoin Up or Down 5m")
@@ -247,6 +252,17 @@ class PolymarketFeed:
 
                                 logger.info(f"🎯 Target Short-Term Contract ({self.market_slug}): '{self.market_title}' | Expiry: in {int(self.market_end_time - time.time())}s")
                                 logger.info(f"Condition ID: {self.condition_id} | Token UP: {self.token_id_up} | Token DOWN: {self.token_id_down}")
+
+                                # Trigger contract round rollover and settlement if switching to a new contract
+                                if old_slug and old_slug != self.market_slug and self.on_rollover_callback:
+                                    winning_side = "UP" if self.up_best_bid >= 0.65 else ("DOWN" if self.down_best_bid >= 0.65 else None)
+                                    try:
+                                        res = self.on_rollover_callback(old_slug, old_title, self.market_slug, self.market_title, winning_side)
+                                        if asyncio.iscoroutine(res):
+                                            asyncio.create_task(res)
+                                    except Exception as err:
+                                        logger.error(f"Error in rollover callback: {err}")
+
                                 return True
             except Exception as exc:
                 logger.debug(f"Slug check error for {slug}: {exc}")

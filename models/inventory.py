@@ -2,6 +2,7 @@
 Inventory and Complete-Set Manager with Avellaneda-Stoikov Skew and Daily Stop-Loss Circuit Breaker.
 """
 from dataclasses import dataclass, field
+from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,53 @@ class InventoryManager:
 
         if self.db is not None:
             self.load_persisted_state()
+
+    def settle_contract_round(self, winning_side: Optional[str] = None, market_title: str = "") -> float:
+        """
+        Settles any residual unmerged tokens when a 5M/15M contract round concludes/resolves,
+        books the final round payout into realized PnL, and resets active positions to 0.0
+        for the fresh upcoming contract round.
+        """
+        up_shares = self.up.shares
+        up_spent = self.up.total_spent
+        down_shares = self.down.shares
+        down_spent = self.down.total_spent
+
+        settlement_pnl = 0.0
+
+        if winning_side:
+            winning_side = winning_side.upper()
+            if winning_side == "UP":
+                # UP pays $1.00 per share, DOWN expires at $0.00
+                payout = up_shares * 1.00
+                settlement_pnl = payout - (up_spent + down_spent)
+            elif winning_side == "DOWN":
+                # DOWN pays $1.00 per share, UP expires at $0.00
+                payout = down_shares * 1.00
+                settlement_pnl = payout - (up_spent + down_spent)
+            else:
+                settlement_pnl = 0.0
+        else:
+            # If no clear oracle outcome, redeem winning side based on highest share inventory
+            settlement_pnl = 0.0
+
+        self.realized_arbitrage_pnl += settlement_pnl
+
+        logger.info(
+            f"🏁 [CONTRACT SETTLED & REDEEMED] '{market_title}' | Residual: {up_shares:.1f} UP, {down_shares:.1f} DOWN | "
+            f"Winner: {winning_side or 'N/A'} | Settlement PnL: {settlement_pnl:+.2f} | "
+            f"Total Cumulative PnL: ${self.realized_arbitrage_pnl:.2f}. Resetting active inventory to 0.0 for new round."
+        )
+
+        # Reset active positions for the fresh round
+        self.up = Position()
+        self.down = Position()
+
+        if self.db:
+            self.db.save_position("UP", 0.0, 0.0, 0.0)
+            self.db.save_position("DOWN", 0.0, 0.0, 0.0)
+
+        return settlement_pnl
 
     def reset_for_session(self, session_id: str, allocated_capital: float = 300.0):
         """Resets active inventory and session metrics for a brand new isolated session."""

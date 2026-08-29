@@ -123,6 +123,7 @@ class PolymarketQuantEngine:
             auto_discover=config.auto_discover_active_market,
             target_market_slug=config.target_market_slug,
             on_book_update_callback=self._on_polymarket_book,
+            on_rollover_callback=self._on_contract_rollover,
         )
 
         # Strategy State
@@ -266,6 +267,23 @@ class PolymarketQuantEngine:
 
         # 2. Recalculate optimal quotes
         await self._evaluate_and_quote()
+
+    def _on_contract_rollover(self, old_slug: str, old_title: str, new_slug: str, new_title: str, winning_side: Optional[str] = None):
+        """
+        Called automatically when rolling over from an expired/settled contract to a fresh round.
+        Settles any residual inventory from the old contract, books the final round payout into realized PnL,
+        and initializes active inventory counters to 0.0 for the fresh upcoming contract round.
+        """
+        logger.info(f"🔄 CONTRACT ROLLOVER: Settling '{old_title}' -> Starting '{new_title}'")
+        
+        # 1. Settle residual shares of the concluding contract and reset active inventory to 0.0
+        if hasattr(self, "inventory") and self.inventory:
+            self.inventory.settle_contract_round(winning_side=winning_side, market_title=old_title)
+        
+        # 2. Reset active paper engine in-flight orders
+        if hasattr(self, "paper_engine") and self.paper_engine:
+            self.paper_engine.active_order_up = None
+            self.paper_engine.active_order_down = None
 
     async def _evaluate_and_quote(self):
         """Calculates optimal bids enforcing cost ceilings, inventory caps, and daily stop-loss."""
