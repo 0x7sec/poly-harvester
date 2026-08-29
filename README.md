@@ -164,6 +164,37 @@ curl -X POST http://localhost:8443/api/mcp/execute/poly_get_status \
 
 ---
 
+---
+
+## ⚡ Official Polymarket SDK (`py-sdk`) & Live Trading Engine
+
+Poly-Harvester utilizes the official **[Polymarket Python SDK (`polymarket-client`)](https://github.com/Polymarket/py-sdk)** (`from polymarket import AsyncSecureClient, AsyncPublicClient`) with institutional-grade execution features:
+
+### 1. Token-Bucket Trading Rate Limiting
+Per the official [Polymarket Trading Rate Limits](https://docs.polymarket.com/api-reference/trading-rate-limits) specification:
+* **Order Bucket**: 40 tokens/s continuous refill, 60 tokens burst capacity (`POST /order`, `POST /orders`).
+* **Cancel Bucket**: 80 tokens/s continuous refill, 120 tokens burst capacity (`DELETE /order`, `DELETE /cancel-all`).
+* **Automatic Backoff**: Automatically parses `Poly-RateLimit-Remaining`, `Poly-RateLimit-Reset`, `Poly-RateLimit-Tier`, and applies exponential backoff on `Retry-After` (HTTP 429).
+
+### 2. Geographic Restrictions & Proxy Support
+Per the official [Polymarket Geographic Restrictions](https://docs.polymarket.com/api-reference/geoblock) specification:
+* Automated IP verification via `GET https://polymarket.com/api/geoblock`.
+* Outbound HTTPS/SOCKS5 proxy support allows seamless trading routing from restricted locations (e.g., US) through compliant server regions (e.g., `eu-west-1` or `eu-west-2`).
+* Real-time compliance indicator displayed on dashboard header (`GEO: ELIGIBLE` or `GEO: RESTRICTED`).
+
+### 3. Strict $300 Capital Bankroll Rules & Risk Safeguards
+* **Total Bankroll Ceiling**: $300.00 USD max capital.
+* **Order Size Limit**: 20 shares (~$9.00 - $10.00 max per order leg).
+* **Inventory Imbalance Cap**: Max 60 unhedged shares (~$28.00 maximum net delta exposure).
+* **Daily Stop Loss Circuit Breaker**: -$25.00 daily loss trigger cancels all open limit bids instantly.
+* **Complete-Set Arbitrage Merge**: Calls `merge_multiple_positions` to automatically redeem UP + DOWN pairs into $1.00 USDC locked profit.
+
+### 4. Live CLOB vs Paper Simulation Modes
+* **Paper Trading Mode (Default)**: Simulates order fills against live Binance & Polymarket books with zero capital risk.
+* **Live CLOB Execution Mode**: Connects directly to Polymarket CLOB with Polygon EIP-712 order signing. Configurable dynamically in the **Polymarket Live SDK** modal with safety confirmation dialogs.
+
+---
+
 ## 🚀 Quick Start
 
 ### 1. Start Server
@@ -171,7 +202,8 @@ curl -X POST http://localhost:8443/api/mcp/execute/poly_get_status \
 python main.py
 ```
 
-### 2. Generate API Key
+### 2. Access Dashboard
 1. Open [http://localhost:8443](http://localhost:8443).
-2. Go to **MCP Agent Manager** $\to$ Click **`Generate MCP Key`**.
-3. Copy your `mcp_live_...` key into your AI config!
+2. Login with default credentials (`admin` / `polyharvester2026`).
+3. Click **Polymarket Live SDK** in the sidebar to configure wallet keys, test geoblock status, or toggle live trading!
+

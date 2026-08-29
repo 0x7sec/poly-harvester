@@ -52,6 +52,8 @@ class BotConfig:
 
     # Wallet / API Settings for Live Execution (When dry_run is False)
     private_key: str = field(default_factory=lambda: os.getenv("POLYMARKET_PRIVATE_KEY", ""))
+    wallet_address: str = field(default_factory=lambda: os.getenv("POLYMARKET_WALLET_ADDRESS", ""))
+    proxy_url: str = field(default_factory=lambda: os.getenv("POLYMARKET_PROXY_URL", ""))
     polygon_rpc_url: str = field(default_factory=lambda: os.getenv("POLYGON_RPC_URL", "https://polygon-rpc.com"))
     api_key: str = field(default_factory=lambda: os.getenv("POLYMARKET_API_KEY", ""))
     api_secret: str = field(default_factory=lambda: os.getenv("POLYMARKET_API_SECRET", ""))

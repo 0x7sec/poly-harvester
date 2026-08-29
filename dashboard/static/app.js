@@ -591,7 +591,82 @@ function updateDashboard(data) {
         }
     }
 
-    // 7. Real Analytics Snapshot
+    // 7. Polymarket Official SDK Telemetry (Geoblock, Rate Limits, USDC Balance, Mode)
+    if (data.polymarket && data.polymarket.sdk_telemetry) {
+        const sdk = data.polymarket.sdk_telemetry;
+
+        // Geoblock Pill & Card Badge
+        const geo = sdk.geoblock || {};
+        const isBlocked = geo.blocked === true;
+        const geoVal = document.getElementById("polyGeoVal");
+        const geoPill = document.getElementById("polyGeoPill");
+        const geoBadge = document.getElementById("polyGeoBadge");
+
+        if (geoVal) {
+            geoVal.textContent = isBlocked ? `BLOCKED (${geo.country || 'US'})` : `ELIGIBLE (${geo.country || 'OK'})`;
+            geoVal.className = isBlocked ? "geo-val text-pink font-bold" : "geo-val text-green font-bold";
+        }
+        if (geoPill) {
+            if (isBlocked) geoPill.classList.add("blocked");
+            else geoPill.classList.remove("blocked");
+        }
+        if (geoBadge) {
+            geoBadge.textContent = isBlocked ? `RESTRICTED (${geo.country})` : `ELIGIBLE (${geo.country})`;
+            geoBadge.className = isBlocked ? "metric-badge font-mono text-pink" : "metric-badge font-mono badge-active";
+        }
+
+        // Rate Limit Tokens
+        const rl = sdk.rate_limits || {};
+        const rateVal = document.getElementById("polyRateVal");
+        const cardRate = document.getElementById("polyCardRateTokens");
+        if (rateVal) {
+            rateVal.textContent = `${Math.round(rl.order_tokens_remaining || 60)}/${rl.order_burst_capacity || 60}`;
+        }
+        if (cardRate) {
+            cardRate.textContent = `${Math.round(rl.order_tokens_remaining || 60)}/${rl.order_burst_capacity || 60} Tokens (${rl.tier || 'Standard'})`;
+        }
+
+        // Live Balance
+        const bal = sdk.balance || {};
+        const polyUsdcBalance = document.getElementById("polyUsdcBalance");
+        if (polyUsdcBalance) {
+            const uBal = bal.usdc_balance !== undefined ? bal.usdc_balance : 300.0;
+            polyUsdcBalance.textContent = `$${uBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        }
+
+        // Wallet Address
+        const cardWalletAddr = document.getElementById("polyCardWalletAddr");
+        if (cardWalletAddr) {
+            const wa = sdk.wallet_address || "Not Configured";
+            cardWalletAddr.textContent = (wa && wa.length > 10) ? `${wa.slice(0, 6)}...${wa.slice(-4)}` : wa;
+            cardWalletAddr.title = wa;
+        }
+
+        // Execution Mode Pill & Badge
+        const isLive = data.live_trading_active === true;
+        const polyModeDot = document.getElementById("polyModeDot");
+        const polyModeText = document.getElementById("polyModeText");
+        const polyCardModeBadge = document.getElementById("polyCardModeBadge");
+        const btnOpenPoly = document.getElementById("btnOpenPolyConfig");
+
+        if (polyModeDot && polyModeText) {
+            if (isLive) {
+                polyModeDot.className = "mode-indicator mode-live";
+                polyModeText.textContent = "MODE: LIVE CLOB";
+                if (btnOpenPoly) btnOpenPoly.classList.add("mode-live-active");
+            } else {
+                polyModeDot.className = "mode-indicator mode-paper";
+                polyModeText.textContent = "MODE: PAPER (SAFE)";
+                if (btnOpenPoly) btnOpenPoly.classList.remove("mode-live-active");
+            }
+        }
+        if (polyCardModeBadge) {
+            polyCardModeBadge.textContent = isLive ? "LIVE CLOB" : "PAPER";
+            polyCardModeBadge.className = isLive ? "badge badge-yellow font-mono" : "badge badge-purple font-mono";
+        }
+    }
+
+    // 8. Real Analytics Snapshot
     if (data.analytics) {
         updateAnalyticsTab(data.analytics);
     }
@@ -1230,6 +1305,177 @@ if (btnCopyResData) {
     btnCopyResData.addEventListener("click", () => {
         navigator.clipboard.writeText(mcpResDataJson.textContent);
         showToast("Response payload copied to clipboard!", "success");
+    });
+}
+
+// ==================== Polymarket Live SDK & Controls Modal ====================
+
+const polyConfigModal = document.getElementById("polyConfigModal");
+const btnOpenPolyConfig = document.getElementById("btnOpenPolyConfig");
+const sideNavPolyConfig = document.getElementById("sideNavPolyConfig");
+const btnClosePolyModal = document.getElementById("btnClosePolyModal");
+const btnCancelPolyModal = document.getElementById("btnCancelPolyModal");
+const polyConfigForm = document.getElementById("polyConfigForm");
+const inputPolyPrivateKey = document.getElementById("inputPolyPrivateKey");
+const inputPolyWalletAddress = document.getElementById("inputPolyWalletAddress");
+const inputPolyProxyUrl = document.getElementById("inputPolyProxyUrl");
+const inputPolyApiKey = document.getElementById("inputPolyApiKey");
+const btnTogglePolyPk = document.getElementById("btnTogglePolyPk");
+const btnRunPolyAudit = document.getElementById("btnRunPolyAudit");
+const polyAuditOutput = document.getElementById("polyAuditOutput");
+const radioModePaper = document.getElementById("radioModePaper");
+const radioModeLive = document.getElementById("radioModeLive");
+const polyModeActiveBadge = document.getElementById("polyModeActiveBadge");
+
+async function openPolyConfigModal() {
+    if (!polyConfigModal) return;
+    polyConfigModal.classList.remove("hidden");
+    refreshIcons();
+
+    // Load stored settings from server
+    try {
+        const res = await fetch("/api/polymarket/status", {
+            headers: { "X-Auth-Token": authToken }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const cfg = data.config || {};
+            if (inputPolyWalletAddress) inputPolyWalletAddress.value = cfg.wallet_address || "";
+            if (inputPolyProxyUrl) inputPolyProxyUrl.value = cfg.proxy_url || "";
+            if (inputPolyApiKey) inputPolyApiKey.value = cfg.api_key || "";
+            if (inputPolyPrivateKey) {
+                inputPolyPrivateKey.value = "";
+                inputPolyPrivateKey.placeholder = cfg.private_key_masked ? `Current: ${cfg.private_key_masked}` : "0x... or leave blank for paper mode";
+            }
+
+            if (data.live_trading_active) {
+                if (radioModeLive) radioModeLive.checked = true;
+                if (polyModeActiveBadge) {
+                    polyModeActiveBadge.textContent = "LIVE CLOB ACTIVE";
+                    polyModeActiveBadge.className = "badge badge-yellow font-mono";
+                }
+            } else {
+                if (radioModePaper) radioModePaper.checked = true;
+                if (polyModeActiveBadge) {
+                    polyModeActiveBadge.textContent = "PAPER SIMULATION";
+                    polyModeActiveBadge.className = "badge badge-green font-mono";
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Failed to load Polymarket config:", e);
+    }
+}
+
+function hidePolyConfigModal() {
+    if (polyConfigModal) polyConfigModal.classList.add("hidden");
+}
+
+if (btnOpenPolyConfig) btnOpenPolyConfig.addEventListener("click", openPolyConfigModal);
+if (sideNavPolyConfig) sideNavPolyConfig.addEventListener("click", openPolyConfigModal);
+if (btnClosePolyModal) btnClosePolyModal.addEventListener("click", hidePolyConfigModal);
+if (btnCancelPolyModal) btnCancelPolyModal.addEventListener("click", hidePolyConfigModal);
+
+if (btnTogglePolyPk && inputPolyPrivateKey) {
+    btnTogglePolyPk.addEventListener("click", () => {
+        const isPw = inputPolyPrivateKey.type === "password";
+        inputPolyPrivateKey.type = isPw ? "text" : "password";
+        btnTogglePolyPk.innerHTML = `<i data-lucide="${isPw ? 'eye-off' : 'eye'}" class="icon-xs"></i>`;
+        refreshIcons();
+    });
+}
+
+if (btnRunPolyAudit) {
+    btnRunPolyAudit.addEventListener("click", async () => {
+        if (!polyAuditOutput) return;
+        polyAuditOutput.textContent = "Running diagnostics against https://polymarket.com/api/geoblock and CLOB balance...";
+
+        try {
+            const proxyVal = inputPolyProxyUrl ? inputPolyProxyUrl.value.trim() : "";
+            const res = await fetch("/api/polymarket/test_connection", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Auth-Token": authToken
+                },
+                body: JSON.stringify({ proxy_url: proxyVal || undefined })
+            });
+            const data = await res.json();
+
+            if (res.ok && data.status === "SUCCESS") {
+                const geo = data.geoblock || {};
+                const bal = data.balance || {};
+                const geoText = geo.blocked ? `RESTRICTED (Country: ${geo.country}, IP: ${geo.ip})` : `ELIGIBLE (Country: ${geo.country}, IP: ${geo.ip})`;
+
+                polyAuditOutput.textContent = [
+                    `[GEOBLOCK AUDIT]: ${geoText}`,
+                    `[COLLATERAL BALANCE]: $${(bal.usdc_balance || 300).toFixed(2)} USDC.e`,
+                    `[ALLOWANCE]: $${(bal.allowance || 10000).toFixed(2)}`,
+                    `[AUTH STATUS]: ${data.is_authenticated ? 'AUTHENTICATED (Secure Client Ready)' : 'SIMULATION / PUBLIC ONLY'}`,
+                    geo.blocked ? "\n⚠️ WARNING: Your IP is in a geoblocked region. Please configure an outbound Proxy URL (e.g. EU region) to place real orders." : "\n✅ IP is compliant and eligible for order execution."
+                ].join("\n");
+
+                showToast("Connection audit completed.", geo.blocked ? "warning" : "success");
+            } else {
+                polyAuditOutput.textContent = `Diagnostic Error: ${data.error || 'Failed to query Polymarket servers'}`;
+                showToast("Audit failed.", "error");
+            }
+        } catch (err) {
+            polyAuditOutput.textContent = `Network Exception: ${err.message}`;
+            showToast("Network error running audit.", "error");
+        }
+    });
+}
+
+if (polyConfigForm) {
+    polyConfigForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        const isLiveChosen = radioModeLive && radioModeLive.checked;
+        const pk = inputPolyPrivateKey ? inputPolyPrivateKey.value.trim() : "";
+        const wa = inputPolyWalletAddress ? inputPolyWalletAddress.value.trim() : "";
+        const prx = inputPolyProxyUrl ? inputPolyProxyUrl.value.trim() : "";
+        const ak = inputPolyApiKey ? inputPolyApiKey.value.trim() : "";
+
+        if (isLiveChosen) {
+            const confirmed = await showCustomConfirm(
+                "Enable Live CLOB Trading?",
+                "WARNING: You are switching to LIVE CLOB EXECUTION. Real limit orders will be placed on Polymarket using real USDC collateral within strict $300 bankroll limits. Proceed?",
+                "Enable Live Trading",
+                "Keep Paper Mode"
+            );
+            if (!confirmed) return;
+        }
+
+        try {
+            const res = await fetch("/api/polymarket/config", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Auth-Token": authToken
+                },
+                body: JSON.stringify({
+                    private_key: pk || undefined,
+                    wallet_address: wa || undefined,
+                    proxy_url: prx,
+                    api_key: ak || undefined,
+                    live_trading_enabled: isLiveChosen
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.status === "SUCCESS") {
+                hidePolyConfigModal();
+                showToast(
+                    isLiveChosen ? "LIVE TRADING ENABLED! Real CLOB orders active." : "Paper Trading Mode active (Safe).",
+                    isLiveChosen ? "warning" : "success"
+                );
+            } else {
+                showToast(data.error || "Failed to update Polymarket settings.", "error");
+            }
+        } catch (err) {
+            showToast("Network error saving configuration.", "error");
+        }
     });
 }
 

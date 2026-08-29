@@ -55,6 +55,10 @@
                     <i data-lucide="cpu" class="icon-sm"></i>
                     <span>MCP Agent Manager</span>
                 </button>
+                <button class="side-nav-btn" id="sideNavPolyConfig" type="button">
+                    <i data-lucide="key" class="icon-sm text-yellow"></i>
+                    <span>Polymarket Live SDK</span>
+                </button>
             </nav>
 
             <!-- Sidebar Risk Controls & Overrides -->
@@ -166,6 +170,27 @@
                 </div>
 
                 <div class="nav-right">
+                    <!-- Polymarket Geoblock Status Pill -->
+                    <div class="geo-pill font-mono" id="polyGeoPill" title="Polymarket Geoblock Compliance Status">
+                        <i data-lucide="globe" class="icon-sm text-cyan"></i>
+                        <span class="geo-label">GEO:</span>
+                        <strong class="geo-val text-green" id="polyGeoVal">CHECKING</strong>
+                    </div>
+
+                    <!-- Polymarket Rate Limits Token Bucket Pill -->
+                    <div class="rate-pill font-mono" id="polyRatePill" title="Polymarket CLOB Rate Limit Tokens (Standard Tier)">
+                        <i data-lucide="gauge" class="icon-sm text-purple"></i>
+                        <span class="rate-label">TOKENS:</span>
+                        <strong class="rate-val text-purple" id="polyRateVal">60/60</strong>
+                    </div>
+
+                    <!-- Live / Paper Mode Switcher Button -->
+                    <button class="btn-mode-toggle font-mono" id="btnOpenPolyConfig" type="button" title="Configure Polymarket SDK & Live Trading">
+                        <span class="mode-indicator mode-paper" id="polyModeDot"></span>
+                        <span id="polyModeText">MODE: PAPER (SAFE)</span>
+                        <i data-lucide="settings" class="icon-xs"></i>
+                    </button>
+
                     <!-- Ping to Binance -->
                     <div class="ping-pill font-mono" id="binancePingPill" title="Binance Direct Feed Latency">
                         <i data-lucide="zap" class="icon-sm text-yellow"></i>
@@ -281,7 +306,7 @@
                 </div>
 
                 <!-- Card 4: Inventory & CTF Skew Management -->
-                <div class="card card-span-3 glass-panel">
+                <div class="card card-span-2 glass-panel">
                     <div class="card-header">
                         <div class="card-title-group">
                             <i data-lucide="boxes" class="card-icon text-pink"></i>
@@ -308,7 +333,7 @@
                 </div>
 
                 <!-- Card 5: Realized Arbitrage PnL & Real Stats -->
-                <div class="card card-span-3 card-glow-green glass-panel">
+                <div class="card card-span-2 card-glow-green glass-panel">
                     <div class="card-header">
                         <div class="card-title-group">
                             <i data-lucide="circle-dollar-sign" class="card-icon text-green"></i>
@@ -327,6 +352,29 @@
                     <div class="stat-row font-mono">
                         <span class="stat-label">Active Capital in Risk / Cap:</span>
                         <span class="stat-val text-cyan font-bold" id="capitalUsage">$0.00 / $300.00</span>
+                    </div>
+                </div>
+
+                <!-- Card 6: Polymarket Live Collateral & Geoblock Telemetry -->
+                <div class="card card-span-2 glass-panel" id="polyWalletCard">
+                    <div class="card-header">
+                        <div class="card-title-group">
+                            <i data-lucide="wallet" class="card-icon text-yellow"></i>
+                            <h3>POLYMARKET WALLET</h3>
+                        </div>
+                        <span class="badge badge-purple font-mono" id="polyCardModeBadge">PAPER</span>
+                    </div>
+                    <div class="metric-main">
+                        <span class="metric-value font-mono text-yellow" id="polyUsdcBalance">$300.00</span>
+                        <span class="metric-badge font-mono badge-active" id="polyGeoBadge">ELIGIBLE</span>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">Signer / Address:</span>
+                        <span class="stat-val text-muted" id="polyCardWalletAddr" title="Polymarket Signer Address">0x... (Demo)</span>
+                    </div>
+                    <div class="stat-row font-mono">
+                        <span class="stat-label">CLOB Rate Limit:</span>
+                        <span class="stat-val text-cyan font-bold" id="polyCardRateTokens">60/60 Tokens (Standard)</span>
                     </div>
                 </div>
 
@@ -842,6 +890,100 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
             <div class="modal-actions">
                 <button type="button" class="btn btn-outline btn-block" id="btnClosePayloadModalBtn">Close Inspector</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Polymarket Live Settings & API Credentials Modal -->
+    <div class="modal-overlay hidden" id="polyConfigModal">
+        <div class="modal-card modal-lg glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="shield-check" class="icon-lg text-yellow"></i>
+                    </div>
+                    <div>
+                        <h3>POLYMARKET LIVE SDK CONTROLS</h3>
+                        <p class="modal-subtitle font-mono">Official py-sdk • Rate Limiter • Geoblock Guard • Max Cap: $300</p>
+                    </div>
+                </div>
+                <button class="btn-modal-close" id="btnClosePolyModal" type="button" title="Close Modal">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
+            </div>
+
+            <form id="polyConfigForm" class="modal-body">
+                <!-- Mode Selector Alert Box -->
+                <div class="poly-mode-selector glass-panel">
+                    <div class="poly-mode-header">
+                        <span class="font-bold text-white">TRADING EXECUTION MODE</span>
+                        <span class="badge badge-green font-mono" id="polyModeActiveBadge">PAPER SIMULATION</span>
+                    </div>
+                    <div class="poly-mode-toggle-group">
+                        <label class="radio-label">
+                            <input type="radio" name="poly_exec_mode" value="paper" checked id="radioModePaper">
+                            <div class="radio-card">
+                                <strong class="text-green"><i data-lucide="shield" class="icon-xs"></i> Paper Trading (Zero Risk)</strong>
+                                <p>Simulates limit order fills against live Binance & Polymarket books safely.</p>
+                            </div>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="poly_exec_mode" value="live" id="radioModeLive">
+                            <div class="radio-card radio-card-live">
+                                <strong class="text-yellow"><i data-lucide="zap" class="icon-xs"></i> Live CLOB Execution</strong>
+                                <p>Places real EIP-712 limit orders on Polymarket (Strict $300 bankroll limit).</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- API Credentials Group -->
+                <div class="form-section-title">WALLET & API CREDENTIALS</div>
+                <div class="form-row-2col">
+                    <div class="form-group">
+                        <label for="inputPolyPrivateKey">Polygon Private Key (L1 Signer):</label>
+                        <div class="input-password-wrapper">
+                            <input type="password" id="inputPolyPrivateKey" placeholder="0x... or leave blank for paper mode" class="font-mono">
+                            <button type="button" class="btn-toggle-eye" id="btnTogglePolyPk"><i data-lucide="eye" class="icon-xs"></i></button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="inputPolyWalletAddress">Polymarket Proxy / Wallet Address:</label>
+                        <input type="text" id="inputPolyWalletAddress" placeholder="0x..." class="font-mono">
+                    </div>
+                </div>
+
+                <div class="form-row-2col">
+                    <div class="form-group">
+                        <label for="inputPolyProxyUrl">Outbound Proxy URL (For Geoblocked Regions):</label>
+                        <input type="text" id="inputPolyProxyUrl" placeholder="http://user:pass@eu-proxy.com:8080" class="font-mono">
+                        <span class="field-hint">Routes orders through non-restricted regions (e.g. EU) if local IP is restricted.</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="inputPolyApiKey">CLOB API Key (Optional L2):</label>
+                        <input type="text" id="inputPolyApiKey" placeholder="API Key" class="font-mono">
+                    </div>
+                </div>
+
+                <!-- Live Audit & Test Diagnostics Box -->
+                <div class="audit-box font-mono" id="polyAuditBox">
+                    <div class="audit-box-header">
+                        <span class="text-cyan"><i data-lucide="activity" class="icon-xs"></i> GEOBLOCK & CONNECTION AUDIT</span>
+                        <button type="button" class="btn btn-sm btn-outline" id="btnRunPolyAudit">
+                            <i data-lucide="refresh-cw" class="icon-xs"></i> Test Connection
+                        </button>
+                    </div>
+                    <div class="audit-output" id="polyAuditOutput">
+                        Click "Test Connection" to query https://polymarket.com/api/geoblock and test CLOB balance.
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="btnCancelPolyModal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btnSavePolySettings">
+                        <i data-lucide="save" class="icon-xs"></i> Save & Apply Configuration
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 

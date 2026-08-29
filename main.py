@@ -23,7 +23,9 @@ from feeds.polymarket_feed import PolymarketFeed
 from models.fair_value import FairValueModel
 from models.inventory import InventoryManager
 from models.quoter import QuotingEngine
+from models.polymarket_client import PolymarketManager
 from execution.paper_engine import PaperTradingEngine
+from execution.live_engine import LiveTradingEngine
 from backtest.recorder import TradeRecorder
 from dashboard.server import DashboardServer
 from storage.database import DatabaseManager
@@ -85,6 +87,28 @@ class PolymarketQuantEngine:
         )
         self.recorder = TradeRecorder(filepath=config.trade_log_file)
 
+        # Polymarket Manager & Live Execution Engine
+        poly_cfg = {}
+        try:
+            poly_cfg = self.db.get_polymarket_config()
+        except Exception:
+            pass
+
+        pk = poly_cfg.get("private_key") or config.private_key
+        wa = poly_cfg.get("wallet_address") or config.wallet_address
+        prx = poly_cfg.get("proxy_url") or config.proxy_url
+
+        self.poly_manager = PolymarketManager(
+            private_key=pk,
+            wallet_address=wa,
+            proxy_url=prx,
+        )
+        self.live_engine = LiveTradingEngine(
+            config=self.config,
+            inventory=self.inventory,
+            poly_manager=self.poly_manager,
+        )
+
         # 1. Primary Reference Feed: Binance Direct High-Speed Stream
         self.binance_feed = BinanceFeed(
             symbol=config.binance_symbol,
@@ -123,19 +147,20 @@ class PolymarketQuantEngine:
 
     async def _on_polymarket_book(self, feed: PolymarketFeed):
         """Triggered whenever Polymarket order book updates."""
-        # 1. Check for fills in paper engine
-        filled = self.paper_engine.check_fills(
-            up_market_ask=feed.up_best_ask,
-            up_last_trade=feed.up_last_trade,
-            down_market_ask=feed.down_best_ask,
-            down_last_trade=feed.down_last_trade,
-        )
+        # 1. Check for fills in paper engine (if running paper simulation)
+        if self.config.dry_run:
+            filled = self.paper_engine.check_fills(
+                up_market_ask=feed.up_best_ask,
+                up_last_trade=feed.up_last_trade,
+                down_market_ask=feed.down_best_ask,
+                down_last_trade=feed.down_last_trade,
+            )
 
-        if filled:
-            for fill in filled:
-                self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.0f} shs)"
-                inv_summary = self.inventory.get_summary()
-                self.recorder.log_trade(fill, inv_summary)
+            if filled:
+                for fill in filled:
+                    self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.0f} shs)"
+                    inv_summary = self.inventory.get_summary()
+                    self.recorder.log_trade(fill, inv_summary)
 
         # 2. Recalculate optimal quotes
         await self._evaluate_and_quote()
@@ -144,8 +169,10 @@ class PolymarketQuantEngine:
         """Calculates optimal bids enforcing cost ceilings, inventory caps, and daily stop-loss."""
         # Circuit Breaker: Daily Stop-Loss Check
         if self.inventory.is_stop_loss_triggered:
-            # Emergency Stop: Cancel all active limit orders
-            self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+            if not self.config.dry_run:
+                await self.live_engine.cancel_all_orders()
+            else:
+                self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
             return
 
         stoikov_skew = self.inventory.get_stoikov_skew()
@@ -162,13 +189,21 @@ class PolymarketQuantEngine:
             down_best_bid=self.polymarket_feed.down_best_bid,
         )
 
-        # Update paper trading virtual orders
-        self.paper_engine.update_quotes(
-            quote_up=self.current_quotes["quote_up"],
-            quote_down=self.current_quotes["quote_down"],
-            allow_up=self.current_quotes["allow_quote_up"],
-            allow_down=self.current_quotes["allow_quote_down"],
-        )
+        # Route orders to active engine (Live CLOB or Paper Simulator)
+        if not self.config.dry_run:
+            await self.live_engine.sync_orders(
+                quote_up=self.current_quotes["quote_up"],
+                quote_down=self.current_quotes["quote_down"],
+                allow_up=self.current_quotes["allow_quote_up"],
+                allow_down=self.current_quotes["allow_quote_down"],
+            )
+        else:
+            self.paper_engine.update_quotes(
+                quote_up=self.current_quotes["quote_up"],
+                quote_down=self.current_quotes["quote_down"],
+                allow_up=self.current_quotes["allow_quote_up"],
+                allow_down=self.current_quotes["allow_quote_down"],
+            )
 
     def render_dashboard(self) -> Table:
         """Constructs a real-time rich dashboard table with risk monitoring."""
@@ -235,6 +270,10 @@ class PolymarketQuantEngine:
         self._running = True
         logger.info("Starting Polymarket Quant Engine with Binance Feed...")
 
+        # 0. Initialize Polymarket Manager & Live Engine
+        await self.poly_manager.initialize()
+        await self.live_engine.initialize()
+
         # 1. Start Web Dashboard if enabled
         if self.config.enable_dashboard:
             self.dashboard = DashboardServer(
@@ -277,6 +316,7 @@ class PolymarketQuantEngine:
         finally:
             for t in feed_tasks:
                 t.cancel()
+            await self.live_engine.cancel_all_orders()
             await self.binance_feed.stop()
             await self.polymarket_feed.stop()
             logger.info("Engine stopped safely.")

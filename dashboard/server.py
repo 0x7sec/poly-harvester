@@ -13,6 +13,7 @@ import time
 from typing import Optional, Tuple
 from aiohttp import web
 from mcp_server import PolyHarvesterMCPServer
+from models.polymarket_client import PolymarketManager
 
 logger = logging.getLogger("PolyHarvesterDashboard")
 
@@ -29,6 +30,27 @@ class DashboardServer:
         self._start_time = time.time()
         self._mcp_server = PolyHarvesterMCPServer(self.engine)
         self._mcp_sse_sessions = {}
+
+        # Initialize Polymarket Manager using config or database settings
+        poly_cfg = {}
+        if hasattr(self.engine, "db") and self.engine.db:
+            try:
+                poly_cfg = self.engine.db.get_polymarket_config()
+            except Exception:
+                poly_cfg = {}
+
+        pk = poly_cfg.get("private_key") or getattr(self.engine.config, "private_key", "")
+        wa = poly_cfg.get("wallet_address") or getattr(self.engine.config, "wallet_address", "")
+        prx = poly_cfg.get("proxy_url") or getattr(self.engine.config, "proxy_url", "")
+
+        self.poly_manager = PolymarketManager(
+            private_key=pk,
+            wallet_address=wa,
+            proxy_url=prx,
+        )
+        if poly_cfg.get("live_trading_enabled") == 1:
+            self.engine.config.dry_run = False
+
         self._setup_routes()
 
     def _extract_token(self, request: web.Request) -> str:
@@ -143,6 +165,11 @@ class DashboardServer:
         self.app.router.add_get("/mcp", self._handle_mcp_tools_spec)
         self.app.router.add_get("/mcp/tools.json", self._handle_mcp_tools_spec)
         self.app.router.add_get("/mcp/openapi.json", self._handle_mcp_openapi)
+
+        # Polymarket Live SDK & Geoblock Endpoints
+        self.app.router.add_get("/api/polymarket/status", self._handle_polymarket_status)
+        self.app.router.add_post("/api/polymarket/config", self._handle_polymarket_config)
+        self.app.router.add_post("/api/polymarket/test_connection", self._handle_polymarket_test_connection)
 
         # Real-time WebSocket
         self.app.router.add_get("/ws", self._handle_websocket)
@@ -843,7 +870,9 @@ class DashboardServer:
                 "up_ask": self.engine.polymarket_feed.up_best_ask,
                 "down_bid": self.engine.polymarket_feed.down_best_bid,
                 "down_ask": self.engine.polymarket_feed.down_best_ask,
+                "sdk_telemetry": self.poly_manager.get_telemetry(),
             },
+            "live_trading_active": not self.engine.config.dry_run,
             "quotes": {
                 "quote_up": quotes.get("quote_up", 0.0),
                 "quote_down": quotes.get("quote_down", 0.0),
@@ -864,6 +893,102 @@ class DashboardServer:
                 "is_stop_loss_triggered": inv["is_stop_loss_triggered"],
             },
         }
+
+    # =========================================================================
+    # POLYMARKET LIVE SDK & GEOBLOCK HANDLERS
+    # =========================================================================
+
+    async def _handle_polymarket_status(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.Response(text="Unauthorized", status=401)
+
+        telemetry = self.poly_manager.get_telemetry()
+        cfg = {}
+        if hasattr(self.engine, "db") and self.engine.db:
+            cfg = self.engine.db.get_polymarket_config()
+            if cfg.get("private_key"):
+                pk = cfg["private_key"]
+                cfg["private_key_masked"] = pk[:6] + "..." + pk[-4:] if len(pk) > 10 else "***"
+                cfg["private_key"] = ""
+            if cfg.get("api_secret"):
+                cfg["api_secret"] = "***"
+
+        return web.json_response({
+            "status": "SUCCESS",
+            "telemetry": telemetry,
+            "config": cfg,
+            "live_trading_active": not self.engine.config.dry_run,
+        })
+
+    async def _handle_polymarket_config(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.Response(text="Unauthorized", status=401)
+
+        try:
+            body = await request.json()
+            pk = body.get("private_key")
+            wa = body.get("wallet_address")
+            prx = body.get("proxy_url")
+            ak = body.get("api_key")
+            as_ = body.get("api_secret")
+            ap = body.get("api_passphrase")
+            live = body.get("live_trading_enabled")
+
+            if hasattr(self.engine, "db") and self.engine.db:
+                self.engine.db.save_polymarket_config(
+                    private_key=pk if pk else None,
+                    wallet_address=wa if wa else None,
+                    proxy_url=prx if prx is not None else None,
+                    api_key=ak if ak else None,
+                    api_secret=as_ if as_ else None,
+                    api_passphrase=ap if ap else None,
+                    live_trading_enabled=live,
+                )
+
+            # Update live engine and manager runtime credentials
+            self.poly_manager.update_credentials(
+                private_key=pk if pk else None,
+                wallet_address=wa if wa else None,
+                proxy_url=prx if prx is not None else None,
+            )
+
+            if live is not None:
+                self.engine.config.dry_run = not bool(live)
+
+            # Re-initialize SDK connections
+            await self.poly_manager.initialize()
+
+            return web.json_response({
+                "status": "SUCCESS",
+                "message": "Polymarket settings updated successfully.",
+                "telemetry": self.poly_manager.get_telemetry(),
+                "live_trading_active": not self.engine.config.dry_run,
+            })
+        except Exception as e:
+            logger.error(f"Error saving Polymarket config: {e}")
+            return web.json_response({"status": "ERROR", "error": str(e)}, status=500)
+
+    async def _handle_polymarket_test_connection(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.Response(text="Unauthorized", status=401)
+
+        try:
+            body = await request.json() if request.can_read_body else {}
+            proxy_url = body.get("proxy_url")
+
+            geo = await self.poly_manager.geoblock_checker.check_geoblock(
+                proxy_url=proxy_url if proxy_url is not None else self.poly_manager.proxy_url
+            )
+            bal = await self.poly_manager.refresh_balance()
+
+            return web.json_response({
+                "status": "SUCCESS",
+                "geoblock": geo,
+                "balance": bal,
+                "is_authenticated": bool(self.poly_manager._secure_client),
+            })
+        except Exception as e:
+            return web.json_response({"status": "ERROR", "error": str(e)}, status=500)
 
     async def start(self):
         runner = web.AppRunner(self.app)

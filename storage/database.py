@@ -178,6 +178,23 @@ class DatabaseManager:
                 except Exception:
                     pass
 
+                # 9. Polymarket Live Credentials & Proxy Settings
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS polymarket_config (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        private_key TEXT DEFAULT '',
+                        wallet_address TEXT DEFAULT '',
+                        proxy_url TEXT DEFAULT '',
+                        api_key TEXT DEFAULT '',
+                        api_secret TEXT DEFAULT '',
+                        api_passphrase TEXT DEFAULT '',
+                        live_trading_enabled INTEGER DEFAULT 0,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+
                 # Seed initial position rows if absent
                 for side in ("UP", "DOWN"):
                     cursor.execute(
@@ -814,3 +831,76 @@ class DatabaseManager:
                     "avg_latency_ms": round(avg_ms, 2),
                     "active_keys_count": active_keys,
                 }
+
+    # =========================================================================
+    # POLYMARKET CONFIGURATION & LIVE TRADING
+    # =========================================================================
+
+    def save_polymarket_config(
+        self,
+        private_key: Optional[str] = None,
+        wallet_address: Optional[str] = None,
+        proxy_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        api_passphrase: Optional[str] = None,
+        live_trading_enabled: Optional[bool] = None,
+    ) -> dict:
+        """Saves or updates runtime Polymarket credentials and proxy configuration."""
+        current = self.get_polymarket_config()
+        now = time.time()
+
+        pk = private_key if private_key is not None else current.get("private_key", "")
+        wa = wallet_address if wallet_address is not None else current.get("wallet_address", "")
+        prx = proxy_url if proxy_url is not None else current.get("proxy_url", "")
+        ak = api_key if api_key is not None else current.get("api_key", "")
+        as_ = api_secret if api_secret is not None else current.get("api_secret", "")
+        ap = api_passphrase if api_passphrase is not None else current.get("api_passphrase", "")
+        live = int(live_trading_enabled) if live_trading_enabled is not None else int(current.get("live_trading_enabled", 0))
+
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO polymarket_config (id, private_key, wallet_address, proxy_url, api_key, api_secret, api_passphrase, live_trading_enabled, updated_at)
+                    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        private_key = excluded.private_key,
+                        wallet_address = excluded.wallet_address,
+                        proxy_url = excluded.proxy_url,
+                        api_key = excluded.api_key,
+                        api_secret = excluded.api_secret,
+                        api_passphrase = excluded.api_passphrase,
+                        live_trading_enabled = excluded.live_trading_enabled,
+                        updated_at = excluded.updated_at
+                    """,
+                    (pk, wa, prx, ak, as_, ap, live, now),
+                )
+                conn.commit()
+
+        return self.get_polymarket_config()
+
+    def get_polymarket_config(self) -> dict:
+        """Returns the stored Polymarket credentials and proxy configuration."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT private_key, wallet_address, proxy_url, api_key, api_secret, api_passphrase, live_trading_enabled, updated_at
+                    FROM polymarket_config WHERE id = 1
+                    """
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return {
+                        "private_key": "",
+                        "wallet_address": "",
+                        "proxy_url": "",
+                        "api_key": "",
+                        "api_secret": "",
+                        "api_passphrase": "",
+                        "live_trading_enabled": 0,
+                        "updated_at": 0.0,
+                    }
+                return dict(row)
