@@ -1876,6 +1876,7 @@ svg.lucide, [data-lucide] {
 .radio-label {
     cursor: pointer;
     position: relative;
+    display: block;
 }
 
 .radio-label input[type="radio"] {
@@ -1913,26 +1914,103 @@ svg.lucide, [data-lucide] {
     font-weight: 700;
     color: var(--text-secondary);
     letter-spacing: 0.5px;
-    margin: 16px 0 10px 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    padding-bottom: 4px;
+    margin: 18px 0 12px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 6px;
+}
+
+/* Two-column responsive grid for modal forms */
+.form-row-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+@media (max-width: 768px) {
+    .form-row-2col {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+}
+
+/* Modal Form Groups, Labels & Custom Glass Inputs */
+.modal-card .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 0;
+}
+
+.modal-card .form-group label {
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 0.3px;
+}
+
+.modal-card input[type="text"],
+.modal-card input[type="password"],
+.modal-card input[type="number"] {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: #ffffff;
+    padding: 10px 14px;
+    font-size: 0.85rem;
+    font-family: var(--font-mono);
+    outline: none;
+    transition: var(--transition);
+    box-sizing: border-box;
+}
+
+.modal-card input[type="text"]:focus,
+.modal-card input[type="password"]:focus,
+.modal-card input[type="number"]:focus {
+    border-color: var(--accent-cyan);
+    background: rgba(6, 182, 212, 0.06);
+    box-shadow: 0 0 12px rgba(6, 182, 212, 0.25);
+}
+
+.modal-card input::placeholder {
+    color: rgba(255, 255, 255, 0.25);
+    font-size: 0.8rem;
 }
 
 .input-password-wrapper {
     position: relative;
+    width: 100%;
     display: flex;
     align-items: center;
 }
 
+.input-password-wrapper input {
+    width: 100%;
+    padding-right: 42px !important;
+}
+
 .btn-toggle-eye {
     position: absolute;
-    right: 10px;
-    background: none;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
     border: none;
     color: var(--text-muted);
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 4px;
+    transition: var(--transition);
+    z-index: 2;
+}
+
+.btn-toggle-eye:hover {
+    color: var(--accent-cyan);
+    background: rgba(255, 255, 255, 0.08);
 }
 
 .field-hint {
@@ -1940,33 +2018,39 @@ svg.lucide, [data-lucide] {
     font-size: 0.68rem;
     color: var(--text-muted);
     margin-top: 4px;
+    line-height: 1.3;
 }
 
 .audit-box {
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: var(--radius-sm);
-    padding: 12px;
-    margin: 16px 0;
+    padding: 14px;
+    margin: 18px 0;
 }
 
 .audit-box-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
-    font-size: 0.74rem;
+    margin-bottom: 10px;
+    font-size: 0.76rem;
     font-weight: 700;
+    letter-spacing: 0.5px;
 }
 
 .audit-output {
-    font-size: 0.72rem;
+    font-size: 0.76rem;
+    font-family: var(--font-mono);
     color: var(--accent-cyan);
     white-space: pre-wrap;
     word-break: break-all;
-    max-height: 120px;
+    text-align: left;
+    line-height: 1.5;
+    max-height: 140px;
     overflow-y: auto;
-    background: rgba(0, 0, 0, 0.2);
-    padding: 8px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    padding: 10px 12px;
     border-radius: var(--radius-xs);
 }
