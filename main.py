@@ -222,6 +222,23 @@ class PolymarketQuantEngine:
             polymarket_up_mid=up_mid,
         )
 
+        # Check for fills on tick arrivals if trading is active
+        if self.is_trading_active and not self.inventory.is_stop_loss_triggered:
+            if self.config.dry_run:
+                filled = self.paper_engine.check_fills(
+                    up_market_ask=self.polymarket_feed.up_best_ask,
+                    up_last_trade=self.polymarket_feed.up_last_trade,
+                    down_market_ask=self.polymarket_feed.down_best_ask,
+                    down_last_trade=self.polymarket_feed.down_last_trade,
+                    up_best_bid=self.polymarket_feed.up_best_bid,
+                    down_best_bid=self.polymarket_feed.down_best_bid,
+                )
+                if filled:
+                    for fill in filled:
+                        self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.0f} shs)"
+                        inv_summary = self.inventory.get_summary()
+                        self.recorder.log_trade(fill, inv_summary)
+
         await self._evaluate_and_quote()
 
     async def _on_polymarket_book(self, feed: PolymarketFeed):
@@ -234,6 +251,8 @@ class PolymarketQuantEngine:
                     up_last_trade=feed.up_last_trade,
                     down_market_ask=feed.down_best_ask,
                     down_last_trade=feed.down_last_trade,
+                    up_best_bid=feed.up_best_bid,
+                    down_best_bid=feed.down_best_bid,
                 )
 
                 if filled:
@@ -247,14 +266,6 @@ class PolymarketQuantEngine:
 
     async def _evaluate_and_quote(self):
         """Calculates optimal bids enforcing cost ceilings, inventory caps, and daily stop-loss."""
-        # Check if trading is disabled (STANDBY / PAUSED) or Circuit Breaker triggered
-        if not self.is_trading_active or self.inventory.is_stop_loss_triggered:
-            if not self.config.dry_run:
-                await self.live_engine.cancel_all_orders()
-            else:
-                self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
-            return
-
         stoikov_skew = self.inventory.get_stoikov_skew()
         imbalance = self.inventory.net_imbalance
 
@@ -268,6 +279,14 @@ class PolymarketQuantEngine:
             up_best_bid=self.polymarket_feed.up_best_bid,
             down_best_bid=self.polymarket_feed.down_best_bid,
         )
+
+        # Check if trading is disabled (STANDBY / PAUSED) or Circuit Breaker triggered
+        if not self.is_trading_active or self.inventory.is_stop_loss_triggered:
+            if not self.config.dry_run:
+                await self.live_engine.cancel_all_orders()
+            else:
+                self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+            return
 
         # Route orders to active engine (Live CLOB or Paper Simulator)
         if not self.config.dry_run:

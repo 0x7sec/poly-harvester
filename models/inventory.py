@@ -221,6 +221,7 @@ class InventoryManager:
             "down_shares": round(self.down.shares, 1),
             "down_avg_cost": round(self.down.avg_cost, 3),
             "net_imbalance": round(self.net_imbalance, 1),
+            "total_spent": round(self.up.total_spent + self.down.total_spent, 2),
             "complete_sets_merged": round(self.total_complete_sets_merged, 1),
             "realized_arb_pnl": round(self.realized_arbitrage_pnl, 2),
             "fees_paid": round(self.total_fees_paid, 2),

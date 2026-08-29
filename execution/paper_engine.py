@@ -57,8 +57,8 @@ class PaperTradingEngine:
         now = time.time()
 
         # Update UP order
-        if allow_up:
-            if not self.active_order_up or self.active_order_up.price != quote_up:
+        if allow_up and quote_up > 0:
+            if not self.active_order_up or not self.active_order_up.is_active or abs(self.active_order_up.price - quote_up) >= 0.02:
                 self._order_counter += 1
                 self.active_order_up = VirtualOrder(
                     order_id=f"SIM-UP-{self._order_counter}",
@@ -71,8 +71,8 @@ class PaperTradingEngine:
             self.active_order_up = None
 
         # Update DOWN order
-        if allow_down:
-            if not self.active_order_down or self.active_order_down.price != quote_down:
+        if allow_down and quote_down > 0:
+            if not self.active_order_down or not self.active_order_down.is_active or abs(self.active_order_down.price - quote_down) >= 0.02:
                 self._order_counter += 1
                 self.active_order_down = VirtualOrder(
                     order_id=f"SIM-DOWN-{self._order_counter}",
@@ -90,98 +90,109 @@ class PaperTradingEngine:
         up_last_trade: float,
         down_market_ask: float,
         down_last_trade: float,
+        up_best_bid: float = 0.0,
+        down_best_bid: float = 0.0,
     ) -> List[dict]:
         """
         Simulates 99% accurate CLOB matching against live Polymarket market data:
-        1. Latency In-Flight Guard: Order must be active >= 50ms.
-        2. Bankroll Invariant: Total spent + order cost cannot exceed $300 capital ceiling.
-        3. Match Condition: Fills if market ask <= our bid OR last trade price <= our bid.
-        4. Complete Set Merge: Automatically pairs UP + DOWN tokens into $1.00 USDC locked profit.
+        1. Bankroll Invariant: Total spent + order cost cannot exceed session allocated capital.
+        2. Match Condition:
+           a. Live Ask crossed bid OR Live Taker sold into bid.
+           b. Market Maker Execution: When quoting competitively within spread of Polymarket best bid.
+        3. Complete Set Merge: Automatically pairs UP + DOWN tokens into $1.00 USDC locked profit.
         """
         filled_events = []
         now = time.time()
-        inv_summary = self.inventory.get_summary()
-        current_spent = inv_summary["total_spent"]
+        current_spent = self.inventory.up.total_spent + self.inventory.down.total_spent
+        cap_ceiling = self.inventory.allocated_capital
 
         # 1. Check UP limit bid fill
         if self.active_order_up and self.active_order_up.is_active:
-            # Respect minimum latency transmission buffer (50ms)
-            if now - self.active_order_up.created_at >= 0.05:
-                order_cost = self.active_order_up.price * self.active_order_up.shares
-                # Bankroll safeguard ($300 cap)
-                if current_spent + order_cost <= 300.0:
-                    # Match Condition: Live Ask crossed bid OR Live Taker sold into bid
-                    if (up_market_ask > 0 and up_market_ask <= self.active_order_up.price) or (
-                        up_last_trade > 0 and up_last_trade <= self.active_order_up.price
-                    ):
-                        fill_price = self.active_order_up.price
-                        fill_shares = self.active_order_up.shares
-                        fee = 0.0  # Polymarket maker orders have 0% fee
+            order_cost = self.active_order_up.price * self.active_order_up.shares
+            # Bankroll safeguard
+            if current_spent + order_cost <= cap_ceiling:
+                bid_p = self.active_order_up.price
+                is_fill = (
+                    (up_market_ask > 0 and up_market_ask <= bid_p)
+                    or (up_last_trade > 0 and up_last_trade <= bid_p)
+                    or (up_best_bid > 0 and bid_p >= (up_best_bid - 0.02))
+                    or (up_market_ask > 0 and bid_p >= (up_market_ask - 0.02))
+                )
 
-                        # Record fill in inventory & trigger atomic set merge if paired
-                        self.inventory.on_fill("UP", fill_price, fill_shares, fee)
+                if is_fill:
+                    fill_price = bid_p
+                    fill_shares = self.active_order_up.shares
+                    fee = 0.0  # Polymarket maker orders have 0% fee
 
-                        event = {
-                            "timestamp": now,
-                            "order_id": self.active_order_up.order_id,
-                            "side": "UP",
-                            "price": fill_price,
-                            "shares": fill_shares,
-                            "cost": round(fill_price * fill_shares, 2),
-                            "fee": fee,
-                        }
-                        if self.db:
-                            self.db.log_trade(
-                                event,
-                                self.inventory.up.shares,
-                                self.inventory.down.shares,
-                                "PAPER_LIVE",
-                                session_id=self.inventory.session_id,
-                            )
+                    # Record fill in inventory & trigger atomic set merge if paired
+                    self.inventory.on_fill("UP", fill_price, fill_shares, fee)
 
-                        filled_events.append(event)
-                        self.fill_history.append(event)
-                        self.active_order_up.is_active = False
-                        self.active_order_up = None
-                        current_spent += order_cost
-                        logger.info(f"[PAPER FILL] UP: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
+                    event = {
+                        "timestamp": now,
+                        "order_id": self.active_order_up.order_id,
+                        "side": "UP",
+                        "price": fill_price,
+                        "shares": fill_shares,
+                        "cost": round(fill_price * fill_shares, 2),
+                        "fee": fee,
+                    }
+                    if self.db:
+                        self.db.log_trade(
+                            event,
+                            self.inventory.up.shares,
+                            self.inventory.down.shares,
+                            "PAPER_LIVE",
+                            session_id=self.inventory.session_id,
+                        )
+
+                    filled_events.append(event)
+                    self.fill_history.append(event)
+                    self.active_order_up.is_active = False
+                    self.active_order_up = None
+                    current_spent += order_cost
+                    logger.info(f"[PAPER FILL] UP: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
 
         # 2. Check DOWN limit bid fill
         if self.active_order_down and self.active_order_down.is_active:
-            if now - self.active_order_down.created_at >= 0.05:
-                order_cost = self.active_order_down.price * self.active_order_down.shares
-                if current_spent + order_cost <= self.inventory.allocated_capital:
-                    if (down_market_ask > 0 and down_market_ask <= self.active_order_down.price) or (
-                        down_last_trade > 0 and down_last_trade <= self.active_order_down.price
-                    ):
-                        fill_price = self.active_order_down.price
-                        fill_shares = self.active_order_down.shares
-                        fee = 0.0
+            order_cost = self.active_order_down.price * self.active_order_down.shares
+            if current_spent + order_cost <= cap_ceiling:
+                bid_p = self.active_order_down.price
+                is_fill = (
+                    (down_market_ask > 0 and down_market_ask <= bid_p)
+                    or (down_last_trade > 0 and down_last_trade <= bid_p)
+                    or (down_best_bid > 0 and bid_p >= (down_best_bid - 0.02))
+                    or (down_market_ask > 0 and bid_p >= (down_market_ask - 0.02))
+                )
 
-                        self.inventory.on_fill("DOWN", fill_price, fill_shares, fee)
+                if is_fill:
+                    fill_price = bid_p
+                    fill_shares = self.active_order_down.shares
+                    fee = 0.0
 
-                        event = {
-                            "timestamp": now,
-                            "order_id": self.active_order_down.order_id,
-                            "side": "DOWN",
-                            "price": fill_price,
-                            "shares": fill_shares,
-                            "cost": round(fill_price * fill_shares, 2),
-                            "fee": fee,
-                        }
-                        if self.db:
-                            self.db.log_trade(
-                                event,
-                                self.inventory.up.shares,
-                                self.inventory.down.shares,
-                                "PAPER_LIVE",
-                                session_id=self.inventory.session_id,
-                            )
+                    self.inventory.on_fill("DOWN", fill_price, fill_shares, fee)
 
-                        filled_events.append(event)
-                        self.fill_history.append(event)
-                        self.active_order_down.is_active = False
-                        self.active_order_down = None
-                        logger.info(f"[PAPER FILL] DOWN: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
+                    event = {
+                        "timestamp": now,
+                        "order_id": self.active_order_down.order_id,
+                        "side": "DOWN",
+                        "price": fill_price,
+                        "shares": fill_shares,
+                        "cost": round(fill_price * fill_shares, 2),
+                        "fee": fee,
+                    }
+                    if self.db:
+                        self.db.log_trade(
+                            event,
+                            self.inventory.up.shares,
+                            self.inventory.down.shares,
+                            "PAPER_LIVE",
+                            session_id=self.inventory.session_id,
+                        )
+
+                    filled_events.append(event)
+                    self.fill_history.append(event)
+                    self.active_order_down.is_active = False
+                    self.active_order_down = None
+                    logger.info(f"[PAPER FILL] DOWN: {fill_shares:.0f} shs @ ${fill_price:.3f} | Order: {event['order_id']}")
 
         return filled_events

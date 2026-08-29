@@ -973,8 +973,8 @@ class DashboardServer:
             },
             "live_trading_active": not self.engine.config.dry_run,
             "quotes": {
-                "quote_up": quotes.get("quote_up", 0.0) if is_trading else 0.0,
-                "quote_down": quotes.get("quote_down", 0.0) if is_trading else 0.0,
+                "quote_up": quotes.get("quote_up", 0.0),
+                "quote_down": quotes.get("quote_down", 0.0),
                 "combined_cost": quotes.get("projected_cost", 0.0),
                 "edge_pct": round(quotes.get("projected_edge", 0.0) * 100.0, 2),
                 "max_cost_limit": self.engine.config.max_combined_cost,
