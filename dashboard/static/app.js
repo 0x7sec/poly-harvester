@@ -660,20 +660,15 @@ function updateDashboard(data) {
         const polyCardModeBadge = document.getElementById("polyCardModeBadge");
         const btnOpenPoly = document.getElementById("btnOpenPolyConfig");
 
-        if (polyModeDot && polyModeText) {
-            if (isLive) {
-                polyModeDot.className = "mode-indicator mode-live";
-                polyModeText.textContent = "MODE: LIVE CLOB";
-                if (btnOpenPoly) btnOpenPoly.classList.add("mode-live-active");
-            } else {
-                polyModeDot.className = "mode-indicator mode-paper";
-                polyModeText.textContent = "MODE: PAPER (SAFE)";
-                if (btnOpenPoly) btnOpenPoly.classList.remove("mode-live-active");
-            }
+        if (polyModeDot) {
+            polyModeDot.className = isLive ? "mode-indicator mode-live" : "mode-indicator mode-paper";
+        }
+        if (btnOpenPoly) {
+            if (isLive) btnOpenPoly.classList.add("mode-live-active");
+            else btnOpenPoly.classList.remove("mode-live-active");
         }
         if (polyCardModeBadge) {
             polyCardModeBadge.textContent = isLive ? "LIVE CLOB" : "PAPER";
-            polyCardModeBadge.className = isLive ? "badge badge-yellow font-mono" : "badge badge-purple font-mono";
         }
     }
 

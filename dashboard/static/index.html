@@ -242,13 +242,6 @@
                             <strong class="text-purple" id="polyRateVal">60/60</strong>
                         </div>
                     </div>
-
-                    <!-- Live / Paper Mode Switcher Button -->
-                    <button class="btn-mode-toggle font-mono" id="btnOpenPolyConfig" type="button" title="Configure Polymarket SDK & Live Trading">
-                        <span class="mode-indicator mode-paper" id="polyModeDot"></span>
-                        <span id="polyModeText">MODE: PAPER (SAFE)</span>
-                        <i data-lucide="settings" class="icon-xs"></i>
-                    </button>
                 </div>
             </header>
 
@@ -395,7 +388,11 @@
                             <i data-lucide="wallet" class="card-icon text-yellow"></i>
                             <h3>POLYMARKET WALLET</h3>
                         </div>
-                        <span class="badge badge-purple font-mono" id="polyCardModeBadge">PAPER</span>
+                        <button class="badge badge-purple font-mono btn-badge-clickable" id="btnOpenPolyConfig" type="button" title="Configure Polymarket SDK & Live Credentials">
+                            <span class="mode-indicator mode-paper" id="polyModeDot"></span>
+                            <span id="polyCardModeBadge">PAPER</span>
+                            <i data-lucide="settings" class="icon-2xs"></i>
+                        </button>
                     </div>
                     <div class="metric-main">
                         <span class="metric-value font-mono text-yellow" id="polyUsdcBalance">$300.00</span>

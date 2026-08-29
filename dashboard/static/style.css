@@ -1979,6 +1979,38 @@ svg.lucide, [data-lucide] {
     transform: scale(1.02);
 }
 
+.btn-badge-clickable {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    border: 1px solid rgba(168, 85, 247, 0.4);
+    background: rgba(168, 85, 247, 0.15);
+    color: var(--accent-purple);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.70rem;
+    font-weight: 700;
+    transition: var(--transition);
+}
+
+.btn-badge-clickable:hover {
+    transform: scale(1.05);
+    background: rgba(168, 85, 247, 0.25);
+    border-color: var(--accent-purple);
+}
+
+.btn-badge-clickable.mode-live-active {
+    background: rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.5);
+    color: var(--accent-yellow);
+}
+
+.btn-badge-clickable.mode-live-active:hover {
+    background: rgba(245, 158, 11, 0.25);
+    border-color: var(--accent-yellow);
+}
+
 .btn-mode-toggle {
     display: inline-flex;
     align-items: center;
