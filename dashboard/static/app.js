@@ -895,6 +895,9 @@ riskForm.addEventListener("submit", async (e) => {
         } else {
             showToast(data.error || "Failed to update risk parameters.", "error");
         }
+    } catch (err) {
+        showToast("Network error updating risk parameters.", "error");
+    }
 });
 
 // ==================== Timeframe Selector Handler ====================
@@ -1772,14 +1775,6 @@ if (startSessionForm) {
         } catch (err) {
             showToast("Network error launching session.", "error");
         }
-    });
-}
-
-const selectTimeframe = document.getElementById("selectTimeframe");
-if (selectTimeframe) {
-    selectTimeframe.addEventListener("change", (e) => {
-        const tf = e.target.value;
-        showToast(`Target Contract timeframe set to BTC ${tf} (Default: 15M)`, "info");
     });
 }
 
