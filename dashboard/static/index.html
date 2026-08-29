@@ -1020,30 +1020,51 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
                 </div>
 
                 <!-- API Credentials Group -->
-                <div class="form-section-title">WALLET & API CREDENTIALS</div>
+                <div class="form-section-title">
+                    <span>WALLET &amp; API CREDENTIALS</span>
+                    <span class="badge badge-cyan font-mono">Web3 EIP-712</span>
+                </div>
+                
                 <div class="form-row-2col">
                     <div class="form-group">
-                        <label for="inputPolyPrivateKey">Polygon Private Key (L1 Signer):</label>
+                        <div class="field-label-group">
+                            <label for="inputPolyPrivateKey">1. Polygon Private Key (L1 Signer):</label>
+                            <span class="badge badge-yellow font-mono">Live Only</span>
+                        </div>
                         <div class="input-password-wrapper">
                             <input type="password" id="inputPolyPrivateKey" placeholder="0x... or leave blank for paper mode" class="font-mono">
-                            <button type="button" class="btn-toggle-eye" id="btnTogglePolyPk"><i data-lucide="eye" class="icon-xs"></i></button>
+                            <button type="button" class="btn-toggle-eye" id="btnTogglePolyPk" title="Toggle Visibility"><i data-lucide="eye" class="icon-xs"></i></button>
                         </div>
+                        <span class="field-hint">64-character hex key from MetaMask or <strong>reveal.magic.link/polymarket</strong>. Leave empty for zero-risk paper trading.</span>
                     </div>
+
                     <div class="form-group">
-                        <label for="inputPolyWalletAddress">Polymarket Proxy / Wallet Address:</label>
-                        <input type="text" id="inputPolyWalletAddress" placeholder="0x..." class="font-mono">
+                        <div class="field-label-group">
+                            <label for="inputPolyWalletAddress">2. Polymarket Wallet Address:</label>
+                            <span class="badge badge-green font-mono">Auto-Derived</span>
+                        </div>
+                        <input type="text" id="inputPolyWalletAddress" placeholder="0x... (Auto-filled from Private Key)" class="font-mono">
+                        <span class="field-hint">Your public Polygon address (<code>0x...</code>). Automatically derived from Private Key if left blank.</span>
                     </div>
                 </div>
 
                 <div class="form-row-2col">
                     <div class="form-group">
-                        <label for="inputPolyProxyUrl">Outbound Proxy URL (For Geoblocked Regions):</label>
+                        <div class="field-label-group">
+                            <label for="inputPolyProxyUrl">3. Outbound Proxy URL:</label>
+                            <span class="badge badge-muted font-mono">Optional</span>
+                        </div>
                         <input type="text" id="inputPolyProxyUrl" placeholder="http://user:pass@eu-proxy.com:8080" class="font-mono">
-                        <span class="field-hint">Routes orders through non-restricted regions (e.g. EU) if local IP is restricted.</span>
+                        <span class="field-hint">Leave blank if ELIGIBLE. Only needed if routing orders from restricted regions.</span>
                     </div>
+
                     <div class="form-group">
-                        <label for="inputPolyApiKey">CLOB API Key (Optional L2):</label>
-                        <input type="text" id="inputPolyApiKey" placeholder="API Key" class="font-mono">
+                        <div class="field-label-group">
+                            <label for="inputPolyApiKey">4. CLOB API Key (L2):</label>
+                            <span class="badge badge-muted font-mono">Auto-Managed</span>
+                        </div>
+                        <input type="text" id="inputPolyApiKey" placeholder="Auto-managed by py-sdk" class="font-mono">
+                        <span class="field-hint">Derived cryptographically by official <code>py-sdk</code> from your private key automatically.</span>
                     </div>
                 </div>
 

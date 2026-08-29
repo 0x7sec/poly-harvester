@@ -1033,6 +1033,18 @@ class DashboardServer:
             ap = body.get("api_passphrase")
             live = body.get("live_trading_enabled")
 
+            # Clean and auto-derive wallet address from private key if needed
+            if pk:
+                pk = pk.strip()
+                if not wa or len(wa.strip()) < 40:
+                    try:
+                        from eth_account import Account
+                        wa = Account.from_key(pk).address
+                    except Exception:
+                        pass
+            if wa:
+                wa = wa.strip()
+
             if hasattr(self.engine, "db") and self.engine.db:
                 self.engine.db.save_polymarket_config(
                     private_key=pk if pk else None,

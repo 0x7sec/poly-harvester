@@ -267,6 +267,13 @@ class PolymarketManager:
             self.private_key = private_key.strip()
         if wallet_address:
             self.wallet_address = wallet_address.strip()
+        elif self.private_key:
+            try:
+                from eth_account import Account
+                self.wallet_address = Account.from_key(self.private_key).address
+                logger.info(f"Derived wallet address {self.wallet_address} from private key.")
+            except Exception as e:
+                logger.warning(f"Could not derive wallet address from private key: {e}")
         if proxy_url is not None:
             self.proxy_url = proxy_url.strip() if proxy_url else None
         self._secure_client = None
