@@ -16,7 +16,7 @@ class QuotingEngine:
         max_combined_cost: float = 0.960,
         min_bid_price: float = 0.05,
         max_bid_price: float = 0.95,
-        max_imbalance: float = 60.0,
+        max_imbalance: float = 75.0,
     ):
         self.target_edge = target_edge
         self.max_combined_cost = max_combined_cost

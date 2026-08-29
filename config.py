@@ -26,16 +26,16 @@ class BotConfig:
     token_id_down: str = ""
     auto_discover_active_market: bool = True  # Automatically discover active 15m/5m BTC market
 
-    # 3. Quantitative Strategy Parameters
-    target_edge_per_share: float = 0.040  # Target 4.0 cents edge per complete set (4.0% - 5.0%)
-    max_combined_cost: float = 0.960       # Hard ceiling: Quote_UP + Quote_DOWN <= 0.960 (Never buy > 96c)
+    # 3. Quantitative Strategy Parameters (Polkadot-Frog HFT Profile)
+    target_edge_per_share: float = 0.040  # Target 4.0 cents edge per complete set (4.0% - 5.0% gross margin)
+    max_combined_cost: float = 0.960       # Hard ceiling: Quote_UP + Quote_DOWN <= 0.960 (Target 0.950 - 0.965)
     min_bid_price: float = 0.05           # Lowest acceptable bid price ($0.05)
     max_bid_price: float = 0.95           # Highest acceptable bid price ($0.95)
 
-    # 4. Mandatory Risk Rules & Sizing (Strict $300 Capital Safeguards)
-    order_size_shares: float = 20.0        # Rule 1: Max ~$9.00 - $10.00 per individual order (20 shares)
-    max_inventory_imbalance: float = 60.0  # Rule 2: Strict Inventory Cap (Max 60 unhedged shares / ~$28 max exposure)
-    daily_stop_loss_usd: float = 25.0      # Rule 3: Daily Stop-Loss ($25 max daily loss / ~8.3% of $300 capital)
+    # 4. Mandatory Risk Rules & Sizing (Polkadot-Frog Style Scaled Clips)
+    order_size_shares: float = 25.0        # Order size: 25.0 shares (~$12.00 - $25.00 per individual clip)
+    max_inventory_imbalance: float = 75.0  # Directional Residual Cap: Max 75.0 unhedged shares (~$35.00 exposure)
+    daily_stop_loss_usd: float = 25.0      # Daily Stop-Loss ($25.00 max daily drawdown circuit breaker)
     inventory_risk_aversion: float = 0.003 # Avellaneda-Stoikov inventory penalty factor (gamma)
 
     # Momentum & Bayesian Model Parameters
