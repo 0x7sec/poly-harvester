@@ -201,11 +201,39 @@ class PolymarketFeed:
         # Try discrete short-term slug endpoints first
         for slug in candidate_slugs:
             try:
+                # Extract slot timestamp and duration
+                slot_ts = int(slug.split("-")[-1])
+                dur = 300 if "5m" in slug else (900 if "15m" in slug else 3600)
+                market_end = float(slot_ts + dur)
+                secs_remaining = market_end - time.time()
+
+                # Rule 1: Skip if contract has expired or has less than 40s of life remaining
+                if secs_remaining < 40:
+                    logger.debug(f"Skipping candidate {slug}: only {int(secs_remaining)}s remaining (expired/closing).")
+                    continue
+
                 events = await asyncio.to_thread(_fetch_url, f"https://gamma-api.polymarket.com/events?slug={slug}")
                 if events and isinstance(events, list) and len(events) > 0:
                     e = events[0]
                     for m in e.get("markets", []):
                         if m.get("active", True) and not m.get("closed", False):
+                            # Rule 2: Check outcomePrices to ensure market is not already settled/resolved
+                            outcome_prices = m.get("outcomePrices")
+                            if isinstance(outcome_prices, str):
+                                try:
+                                    outcome_prices = json.loads(outcome_prices)
+                                except Exception:
+                                    outcome_prices = []
+                            
+                            if outcome_prices and len(outcome_prices) >= 2:
+                                try:
+                                    p0, p1 = float(outcome_prices[0]), float(outcome_prices[1])
+                                    if p0 >= 0.88 or p0 <= 0.12 or p1 >= 0.88 or p1 <= 0.12:
+                                        logger.info(f"Skipping candidate {slug} ('{e.get('title')}'): prices {outcome_prices} indicates outcome already determined.")
+                                        continue
+                                except Exception:
+                                    pass
+
                             tokens = m.get("clobTokenIds")
                             if isinstance(tokens, str):
                                 tokens = json.loads(tokens)
@@ -215,14 +243,7 @@ class PolymarketFeed:
                                 self.market_title = e.get("title") or m.get("question", "Bitcoin Up or Down 5m")
                                 self.market_slug = e.get("slug") or m.get("slug", slug)
                                 self.condition_id = str(m.get("conditionId", ""))
-                                
-                                # Set exact contract end time from slot timestamp
-                                try:
-                                    slot_ts = int(slug.split("-")[-1])
-                                    dur = 300 if "5m" in slug else (900 if "15m" in slug else 3600)
-                                    self.market_end_time = float(slot_ts + dur)
-                                except Exception:
-                                    self.market_end_time = time.time() + 300.0
+                                self.market_end_time = market_end
 
                                 logger.info(f"🎯 Target Short-Term Contract ({self.market_slug}): '{self.market_title}' | Expiry: in {int(self.market_end_time - time.time())}s")
                                 logger.info(f"Condition ID: {self.condition_id} | Token UP: {self.token_id_up} | Token DOWN: {self.token_id_down}")

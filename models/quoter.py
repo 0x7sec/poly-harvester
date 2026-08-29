@@ -84,10 +84,21 @@ class QuotingEngine:
             else:
                 quote_down = round(quote_down - 0.01, 2)
 
-        # Step 5: Risk circuit breaker - disable quoting the heavy side if imbalance is excessive
+        # Step 5: Risk circuit breakers
         allow_quote_up = True
         allow_quote_down = True
 
+        # 5a. Extreme Probability & Outcome Resolution Circuit Breaker:
+        # When probability is >= 88% or <= 12% (or CLOB book is near $0.90 / $0.10),
+        # market is determined/settled. Refuse to quote on the dead dying token leg!
+        if q_up >= 0.88 or up_best_bid >= 0.88:
+            allow_quote_down = False
+            allow_quote_up = False
+        elif q_down >= 0.88 or down_best_bid >= 0.88:
+            allow_quote_up = False
+            allow_quote_down = False
+
+        # 5b. Inventory imbalance cap
         if net_imbalance >= self.max_imbalance:
             # Overloaded on UP: Pause buying more UP, only buy DOWN to rebalance
             allow_quote_up = False
