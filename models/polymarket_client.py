@@ -266,6 +266,11 @@ class PolymarketManager:
                     )
                     logger.info(f"Polymarket AsyncSecureClient initialized for wallet: {self.wallet_address[:8]}...")
                     await self.refresh_balance()
+                    if self._balance_cache.get("allowance", 0.0) < 100.0:
+                        try:
+                            await self.setup_trading_approvals()
+                        except Exception as e:
+                            logger.warning(f"Initial trading approval check: {e}")
                     return True
                 except Exception as e:
                     logger.warning(f"Could not initialize AsyncSecureClient: {e}")
@@ -362,7 +367,43 @@ class PolymarketManager:
             return await self._public_client.get_order_book(token_id=token_id)
         except Exception as e:
             logger.debug(f"Error fetching order book for {token_id}: {e}")
-        return None
+    async def setup_trading_approvals(self) -> Dict[str, Any]:
+        """Sets up required CTF, ERC-20 (USDC.e), and ERC-1155 exchange trading approvals on Polygon."""
+        if not self._secure_client:
+            return {"status": "SKIPPED", "message": "No secure client initialized."}
+
+        try:
+            logger.info("Verifying and setting up Polymarket CTF and exchange trading approvals...")
+            handle = await self._secure_client.setup_trading_approvals()
+            logger.info(f"Polymarket trading approvals setup completed: {handle}")
+            return {"status": "SUCCESS", "handle": str(handle)}
+        except Exception as e:
+            logger.warning(f"Polymarket setup_trading_approvals notice: {e}")
+            return {"status": "WARNING", "error": str(e)}
+
+    async def get_order(self, order_id: str) -> Optional[Any]:
+        """Retrieves real-time order status and matched fill size from Polymarket CLOB."""
+        if not self._secure_client:
+            return None
+        try:
+            return await self._secure_client.get_order(order_id=order_id)
+        except Exception as e:
+            logger.debug(f"Could not fetch order {order_id}: {e}")
+            return None
+
+    async def list_open_orders(self, token_id: Optional[str] = None) -> List[Any]:
+        """Lists active open orders on the Polymarket CLOB."""
+        if not self._secure_client:
+            return []
+        try:
+            paginator = self._secure_client.list_open_orders(token_id=token_id)
+            orders = []
+            async for order in paginator:
+                orders.append(order)
+            return orders
+        except Exception as e:
+            logger.debug(f"Could not list open orders: {e}")
+            return []
 
     async def place_limit_order(
         self,
@@ -398,20 +439,33 @@ class PolymarketManager:
             }
 
         try:
-            order_side = OrderSide.BUY if side.upper() == "BUY" else OrderSide.SELL
+            # FIX BLOCKER 1: Use exact Literal['BUY', 'SELL'] string, NOT OrderSide enum
+            order_side = "BUY" if str(side).upper() == "BUY" else "SELL"
             response = await self._secure_client.place_limit_order(
                 token_id=token_id,
                 side=order_side,
                 price=price,
                 size=amount_shares,
             )
+
+            # FIX BLOCKER 4: Explicitly check for RejectedOrder vs AcceptedOrder
+            is_ok = getattr(response, "ok", False)
+            if not is_ok:
+                err_msg = getattr(response, "message", str(response))
+                err_code = getattr(response, "code", "REJECTED")
+                logger.error(f"Polymarket CLOB Order Rejected ({err_code}): {err_msg}")
+                return {"status": "ERROR", "code": err_code, "error": err_msg}
+
+            order_id = getattr(response, "order_id", str(response))
             return {
                 "status": "SUCCESS",
-                "order_id": getattr(response, "order_id", str(response)),
+                "order_id": order_id,
+                "order_status": getattr(response, "status", "LIVE"),
+                "trade_ids": getattr(response, "trade_ids", []),
                 "raw_response": str(response),
             }
         except Exception as e:
-            logger.error(f"Live limit order failed: {e}")
+            logger.error(f"Live limit order exception: {e}")
             return {"status": "ERROR", "error": str(e)}
 
     async def cancel_order(self, order_id: str) -> Dict[str, Any]:
@@ -438,14 +492,17 @@ class PolymarketManager:
         except Exception as e:
             return {"status": "ERROR", "error": str(e)}
 
-    async def merge_complete_sets(self, condition_id: str, amount: str = "max") -> Dict[str, Any]:
-        """Calls merge_multiple_positions on the official SDK to redeem complete sets into USDC."""
+    async def merge_complete_sets(self, condition_id: str, amount: Any = "max") -> Dict[str, Any]:
+        """Calls merge_positions on the official SDK to redeem complete sets into USDC on-chain."""
         if not self._secure_client:
             return {"status": "SIMULATED", "condition_id": condition_id, "amount": amount}
 
         try:
-            handle = self._secure_client.merge_multiple_positions(
-                positions=[{"condition_id": condition_id, "amount": amount}]
+            # FIX BLOCKER 2: Correct parameter and await async coroutine
+            amt_param = "max" if str(amount).lower() == "max" else int(float(amount))
+            handle = await self._secure_client.merge_positions(
+                condition_id=condition_id,
+                amount=amt_param,
             )
             return {"status": "SUCCESS", "tx_handle": str(handle)}
         except Exception as e:

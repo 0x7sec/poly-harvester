@@ -237,6 +237,9 @@ class InventoryManager:
                     session_id=self.session_id,
                 )
 
+    # Backward compatibility alias
+    record_fill = on_fill
+
     def _check_stop_loss(self):
         """Emergency circuit breaker: shuts down quoting if daily loss reaches stop-loss threshold."""
         net_pnl = self.realized_arbitrage_pnl - self.total_fees_paid

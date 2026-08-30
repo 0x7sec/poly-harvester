@@ -1,6 +1,7 @@
 """
 Live Polymarket Order Execution Router using the official Polymarket Python SDK (`polymarket-client`).
-Enforces strict capital bankroll limits, dynamic clip-sizing, and complete-set smart contract merges.
+Enforces strict capital bankroll limits, dynamic clip-sizing, real-time CLOB fill reconciliation,
+and complete-set smart contract merges on Polygon.
 """
 import asyncio
 import logging
@@ -127,6 +128,7 @@ class LiveTradingEngine:
                         "side": "UP",
                         "price": round(quote_up, 2),
                         "shares": self.config.order_size_shares,
+                        "filled_shares": 0.0,
                         "token_id": target_token_up,
                         "placed_at": time.time(),
                         "market_title": market_title,
@@ -172,6 +174,7 @@ class LiveTradingEngine:
                         "side": "DOWN",
                         "price": round(quote_down, 2),
                         "shares": self.config.order_size_shares,
+                        "filled_shares": 0.0,
                         "token_id": target_token_down,
                         "placed_at": time.time(),
                         "market_title": market_title,
@@ -190,7 +193,7 @@ class LiveTradingEngine:
     async def check_fills(self, feed: Any = None) -> List[Dict[str, Any]]:
         """
         Reconciles live order fills against Polymarket CLOB.
-        Updates inventory manager and SQLite database upon confirmed executions.
+        Queries real user order status directly from Polymarket CLOB to eliminate phantom fills.
         """
         if self.config.dry_run:
             return []
@@ -198,76 +201,109 @@ class LiveTradingEngine:
         fills = []
         now = time.time()
 
-        # Check UP order fill condition
-        if self.active_order_up and feed:
-            up_market_ask = getattr(feed, "up_best_ask", 1.0)
-            up_last_trade = getattr(feed, "up_last_trade", 0.0)
-            order_price = self.active_order_up["price"]
+        # Throttle fill polling to max once every 0.8s to respect CLOB rate limits
+        if now - self._last_fill_check_time < 0.8:
+            return fills
+        self._last_fill_check_time = now
 
-            # Crossed spread or market traded at/below our limit price
-            if (up_market_ask <= order_price) or (0.0 < up_last_trade <= order_price):
-                fill_event = {
-                    "side": "UP",
-                    "price": order_price,
-                    "shares": self.active_order_up["shares"],
-                    "cost": round(order_price * self.active_order_up["shares"], 4),
-                    "fee": 0.0,
-                    "order_id": self.active_order_up["order_id"],
-                    "timestamp": now,
-                    "market_title": self.active_order_up.get("market_title", getattr(feed, "market_title", "")),
-                    "market_slug": self.active_order_up.get("market_slug", getattr(feed, "market_slug", "")),
-                }
-                self.inventory.record_fill("UP", fill_event["price"], fill_event["shares"])
-                if self.db:
-                    try:
-                        self.db.log_trade(
-                            fill_event,
-                            up_shares_after=self.inventory.up.shares,
-                            down_shares_after=self.inventory.down.shares,
-                            execution_type="LIVE",
-                            session_id=getattr(self.inventory, "current_session_id", "LIVE"),
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to log live trade to SQLite: {e}")
+        # Reconcile UP Order Fills
+        if self.active_order_up and self.active_order_up.get("order_id"):
+            ord_id = self.active_order_up["order_id"]
+            if ord_id.startswith("sim_"):
+                # Simulation fallback for dry-run
+                pass
+            else:
+                try:
+                    order_info = await self.poly_manager.get_order(ord_id)
+                    if order_info:
+                        matched = float(getattr(order_info, "size_matched", 0.0) or 0.0)
+                        prev_matched = float(self.active_order_up.get("filled_shares", 0.0))
+                        status = str(getattr(order_info, "status", "")).upper()
 
-                fills.append(fill_event)
-                logger.info(f"⚡ [LIVE FILL] UP {fill_event['shares']} shs @ ${fill_event['price']:.3f} | Cost: ${fill_event['cost']:.2f}")
-                self.active_order_up = None
+                        if matched > prev_matched:
+                            delta_shares = matched - prev_matched
+                            fill_price = float(getattr(order_info, "price", self.active_order_up["price"]))
+                            fill_event = {
+                                "side": "UP",
+                                "price": fill_price,
+                                "shares": delta_shares,
+                                "cost": round(fill_price * delta_shares, 4),
+                                "fee": 0.0,
+                                "order_id": ord_id,
+                                "timestamp": now,
+                                "market_title": self.active_order_up.get("market_title", getattr(feed, "market_title", "")),
+                                "market_slug": self.active_order_up.get("market_slug", getattr(feed, "market_slug", "")),
+                            }
+                            self.inventory.on_fill("UP", fill_price, delta_shares)
+                            if self.db:
+                                try:
+                                    self.db.log_trade(
+                                        fill_event,
+                                        up_shares_after=self.inventory.up.shares,
+                                        down_shares_after=self.inventory.down.shares,
+                                        execution_type="LIVE",
+                                        session_id=getattr(self.inventory, "current_session_id", "LIVE"),
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to log live trade to SQLite: {e}")
 
-        # Check DOWN order fill condition
-        if self.active_order_down and feed:
-            down_market_ask = getattr(feed, "down_best_ask", 1.0)
-            down_last_trade = getattr(feed, "down_last_trade", 0.0)
-            order_price = self.active_order_down["price"]
+                            fills.append(fill_event)
+                            self.active_order_up["filled_shares"] = matched
+                            logger.info(f"⚡ [CONFIRMED LIVE FILL] UP {delta_shares:.1f} shs @ ${fill_price:.3f} (Total Matched: {matched:.1f}/{self.active_order_up['shares']:.1f})")
 
-            if (down_market_ask <= order_price) or (0.0 < down_last_trade <= order_price):
-                fill_event = {
-                    "side": "DOWN",
-                    "price": order_price,
-                    "shares": self.active_order_down["shares"],
-                    "cost": round(order_price * self.active_order_down["shares"], 4),
-                    "fee": 0.0,
-                    "order_id": self.active_order_down["order_id"],
-                    "timestamp": now,
-                    "market_title": self.active_order_down.get("market_title", getattr(feed, "market_title", "")),
-                    "market_slug": self.active_order_down.get("market_slug", getattr(feed, "market_slug", "")),
-                }
-                self.inventory.record_fill("DOWN", fill_event["price"], fill_event["shares"])
-                if self.db:
-                    try:
-                        self.db.log_trade(
-                            fill_event,
-                            up_shares_after=self.inventory.up.shares,
-                            down_shares_after=self.inventory.down.shares,
-                            execution_type="LIVE",
-                            session_id=getattr(self.inventory, "current_session_id", "LIVE"),
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to log live trade to SQLite: {e}")
+                        if status in ("MATCHED", "CANCELLED", "EXPIRED") or matched >= self.active_order_up["shares"]:
+                            self.active_order_up = None
+                except Exception as e:
+                    logger.debug(f"Error checking live UP order fill: {e}")
 
-                fills.append(fill_event)
-                logger.info(f"⚡ [LIVE FILL] DOWN {fill_event['shares']} shs @ ${fill_event['price']:.3f} | Cost: ${fill_event['cost']:.2f}")
-                self.active_order_down = None
+        # Reconcile DOWN Order Fills
+        if self.active_order_down and self.active_order_down.get("order_id"):
+            ord_id = self.active_order_down["order_id"]
+            if ord_id.startswith("sim_"):
+                pass
+            else:
+                try:
+                    order_info = await self.poly_manager.get_order(ord_id)
+                    if order_info:
+                        matched = float(getattr(order_info, "size_matched", 0.0) or 0.0)
+                        prev_matched = float(self.active_order_down.get("filled_shares", 0.0))
+                        status = str(getattr(order_info, "status", "")).upper()
+
+                        if matched > prev_matched:
+                            delta_shares = matched - prev_matched
+                            fill_price = float(getattr(order_info, "price", self.active_order_down["price"]))
+                            fill_event = {
+                                "side": "DOWN",
+                                "price": fill_price,
+                                "shares": delta_shares,
+                                "cost": round(fill_price * delta_shares, 4),
+                                "fee": 0.0,
+                                "order_id": ord_id,
+                                "timestamp": now,
+                                "market_title": self.active_order_down.get("market_title", getattr(feed, "market_title", "")),
+                                "market_slug": self.active_order_down.get("market_slug", getattr(feed, "market_slug", "")),
+                            }
+                            self.inventory.on_fill("DOWN", fill_price, delta_shares)
+                            if self.db:
+                                try:
+                                    self.db.log_trade(
+                                        fill_event,
+                                        up_shares_after=self.inventory.up.shares,
+                                        down_shares_after=self.inventory.down.shares,
+                                        execution_type="LIVE",
+                                        session_id=getattr(self.inventory, "current_session_id", "LIVE"),
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Failed to log live trade to SQLite: {e}")
+
+                            fills.append(fill_event)
+                            self.active_order_down["filled_shares"] = matched
+                            logger.info(f"⚡ [CONFIRMED LIVE FILL] DOWN {delta_shares:.1f} shs @ ${fill_price:.3f} (Total Matched: {matched:.1f}/{self.active_order_down['shares']:.1f})")
+
+                        if status in ("MATCHED", "CANCELLED", "EXPIRED") or matched >= self.active_order_down["shares"]:
+                            self.active_order_down = None
+                except Exception as e:
+                    logger.debug(f"Error checking live DOWN order fill: {e}")
 
         # Auto-Trigger On-Chain Complete Set Merge if eligible
         if feed and getattr(feed, "condition_id", None):
@@ -285,8 +321,8 @@ class LiveTradingEngine:
 
         return fills
 
-    async def merge_complete_sets_onchain(self, condition_id: str, amount: str = "max") -> Dict[str, Any]:
-        """Redeems complete sets into USDC via official SDK merge_multiple_positions."""
+    async def merge_complete_sets_onchain(self, condition_id: str, amount: Any = "max") -> Dict[str, Any]:
+        """Redeems complete sets into USDC via official SDK merge_positions."""
         logger.info(f"Executing Complete-Set Merge on Polymarket: condition {condition_id}, amount {amount}")
         return await self.poly_manager.merge_complete_sets(condition_id=condition_id, amount=amount)
 

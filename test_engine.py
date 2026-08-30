@@ -184,6 +184,73 @@ class TestPolymarketQuantEngine(unittest.TestCase):
         self.assertEqual(engine.active_order_up.remaining_shares, 10.0)
         self.assertEqual(inventory.up.shares, 10.0)
 
+    def test_live_engine_fill_reconciliation_real_orders(self):
+        """Tests that live engine only records fills from real matched orders and not phantom public trades."""
+        import asyncio
+        from execution.live_engine import LiveTradingEngine
+        from config import BotConfig
+
+        async def _test():
+            cfg = BotConfig(dry_run=False)
+            inv = InventoryManager(max_combined_cost=0.960)
+            engine = LiveTradingEngine(config=cfg, inventory=inv)
+
+            # 1. Simulate active order
+            engine.active_order_up = {
+                "order_id": "0xreal_order_123",
+                "side": "UP",
+                "price": 0.45,
+                "shares": 20.0,
+                "filled_shares": 0.0,
+                "token_id": "tok_up",
+            }
+
+            # 2. Mock get_order returning partial fill of 10 shares
+            class MockOrder:
+                id = "0xreal_order_123"
+                price = 0.45
+                size_matched = 10.0
+                status = "LIVE"
+
+            async def mock_get_order(ord_id):
+                return MockOrder()
+
+            engine.poly_manager.get_order = mock_get_order
+            engine._last_fill_check_time = 0.0
+
+            fills = await engine.check_fills()
+            self.assertEqual(len(fills), 1)
+            self.assertEqual(fills[0]["shares"], 10.0)
+            self.assertEqual(inv.up.shares, 10.0)
+            self.assertEqual(engine.active_order_up["filled_shares"], 10.0)
+
+        asyncio.run(_test())
+
+    def test_polymarket_order_rejection_detection(self):
+        """Tests that RejectedOrder responses are correctly surfaced as ERROR status."""
+        import asyncio
+        from models.polymarket_client import PolymarketManager
+
+        async def _test():
+            mgr = PolymarketManager()
+
+            # Mock secure client returning a RejectedOrder
+            class MockRejectedOrder:
+                ok = False
+                code = 4001
+                message = "insufficient collateral balance"
+
+            class MockSecureClient:
+                async def place_limit_order(self, **kwargs):
+                    return MockRejectedOrder()
+
+            mgr._secure_client = MockSecureClient()
+            res = await mgr.place_limit_order(token_id="test_tok", side="BUY", price=0.45, amount_shares=10.0)
+            self.assertEqual(res["status"], "ERROR")
+            self.assertEqual(res["error"], "insufficient collateral balance")
+
+        asyncio.run(_test())
+
 
 if __name__ == "__main__":
     unittest.main()
