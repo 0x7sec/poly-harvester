@@ -22,8 +22,15 @@ if "ckzg" not in sys.modules:
             return lambda *args, **kwargs: None
     sys.modules["ckzg"] = _DummyCKZG()
 
-from polymarket import AsyncPublicClient, AsyncSecureClient, OrderSide, OrderType
-from polymarket.models import Market, OrderBook, Position
+try:
+    from polymarket import AsyncPublicClient, AsyncSecureClient, OrderType
+    from polymarket.models import Market, OrderBook, Position
+    HAVE_POLYMARKET = True
+except ImportError:
+    AsyncPublicClient = None
+    AsyncSecureClient = None
+    OrderType = None
+    HAVE_POLYMARKET = False
 
 logger = logging.getLogger("PolymarketClient")
 
