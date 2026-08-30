@@ -586,7 +586,7 @@ class DashboardServer:
             order_size_shares = float(body.get("order_size_shares", 20.0))
             notes = body.get("notes", "").strip()
 
-            sess = self.engine.start_session(
+            sess = await self.engine.start_session(
                 name=name,
                 mode=mode,
                 allocated_capital=allocated_capital,
@@ -608,7 +608,7 @@ class DashboardServer:
     async def _handle_session_pause(self, request: web.Request):
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
-        sess = self.engine.pause_trading()
+        sess = await self.engine.pause_trading()
         if hasattr(self.engine, "cache") and self.engine.cache:
             self.engine.cache.set_bot_status(is_paused=True, is_stop_loss=False, reason="User paused session")
         return web.json_response({"status": "SUCCESS", "session": sess, "message": "Session paused."})
@@ -616,15 +616,17 @@ class DashboardServer:
     async def _handle_session_resume(self, request: web.Request):
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
-        sess = self.engine.resume_trading()
+        sess = await self.engine.resume_trading()
         if hasattr(self.engine, "cache") and self.engine.cache:
             self.engine.cache.set_bot_status(is_paused=False, is_stop_loss=False, reason="User resumed session")
+        if sess and sess.get("resumed") is False:
+            return web.json_response({"status": "NOOP", "session": sess, "message": "No active session to resume."})
         return web.json_response({"status": "SUCCESS", "session": sess, "message": "Session resumed."})
 
     async def _handle_session_stop(self, request: web.Request):
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
-        sess = self.engine.stop_session()
+        sess = await self.engine.stop_session()
         if hasattr(self.engine, "cache") and self.engine.cache:
             self.engine.cache.set_bot_status(is_paused=True, is_stop_loss=False, reason="User stopped session")
         return web.json_response({"status": "SUCCESS", "session": sess, "message": "Session stopped and archived."})
@@ -1284,7 +1286,10 @@ class DashboardServer:
                 "session_id": current_sess_id,
                 "is_trading_active": (session_status == "ACTIVE"),
                 "name": active_sess.get("name") if active_sess else ("Active Session" if current_sess_id != "STANDBY" else "Standby (Not Trading)"),
-                "mode": active_sess.get("mode", "PAPER") if active_sess else ("PAPER" if self.engine.config.dry_run else "LIVE"),
+                # Single source of truth for mode: the engine's live dry_run flag
+                # (set by start_session). Previously this read the DB row's mode,
+                # which could disagree with dry_run and contradict live_trading_active.
+                "mode": "PAPER" if self.engine.config.dry_run else "LIVE",
                 "allocated_capital": getattr(self.engine.inventory, "allocated_capital", 300.0),
                 "order_size_shares": self.engine.config.order_size_shares,
                 "start_time": session_start if (session_start > 0 and current_sess_id != "STANDBY") else None,
@@ -1403,8 +1408,11 @@ class DashboardServer:
                 proxy_url=prx if prx is not None else None,
             )
 
-            if live is not None:
-                self.engine.config.dry_run = not bool(live)
+            # NOTE: The `live_trading_enabled` flag is persisted for display, but
+            # it no longer writes the global config.dry_run. Execution mode is
+            # owned exclusively by the active session (start_session sets dry_run),
+            # so this modal can no longer silently flip a running PAPER session
+            # into LIVE (or vice versa) without an explicit session start.
 
             # Re-initialize SDK connections
             await self.poly_manager.initialize()

@@ -136,6 +136,9 @@ class PolymarketQuantEngine:
 
         # Session & Trading Controls
         self.session_start_time: float = 0.0
+        # Serializes session lifecycle transitions (start/pause/resume/stop) so a
+        # tick can't observe half-reset inventory or a half-flipped dry_run flag.
+        self._session_lock = asyncio.Lock()
         active_sess = self.db.get_active_session() if self.db else None
         if active_sess and active_sess.get("status") == "ACTIVE":
             self.current_session_id = active_sess["session_id"]
@@ -151,7 +154,7 @@ class PolymarketQuantEngine:
             self.current_session_id = "STANDBY"
             self.is_trading_active = False
 
-    def start_session(
+    async def start_session(
         self,
         name: str = "",
         mode: str = "PAPER",
@@ -160,7 +163,34 @@ class PolymarketQuantEngine:
         notes: str = "",
     ) -> dict:
         """Starts a new isolated trading session with user-specified capital and mode."""
+        async with self._session_lock:
+            return await self._start_session_locked(
+                name=name,
+                mode=mode,
+                allocated_capital=allocated_capital,
+                order_size_shares=order_size_shares,
+                notes=notes,
+            )
+
+    async def _start_session_locked(
+        self,
+        name: str = "",
+        mode: str = "PAPER",
+        allocated_capital: float = 300.0,
+        order_size_shares: float = 20.0,
+        notes: str = "",
+    ) -> dict:
+        """Body of start_session; must be called with self._session_lock held."""
         is_paper = (mode.upper() == "PAPER")
+
+        # Mode downgrade (LIVE -> PAPER): cancel any resting live CLOB orders first
+        # so the previous session's orders aren't orphaned on the book.
+        if not is_paper and self.config.dry_run:
+            try:
+                await self.live_engine.cancel_all_orders()
+            except Exception as e:
+                logger.warning(f"Failed to cancel live orders on mode downgrade: {e}")
+
         self.config.dry_run = is_paper
         self.config.order_size_shares = float(order_size_shares)
         self.paper_engine.order_size_shares = float(order_size_shares)
@@ -193,60 +223,59 @@ class PolymarketQuantEngine:
 
         if not is_paper:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self.live_engine.initialize())
-            except Exception:
-                pass
+                loop = asyncio.get_running_loop()
+                loop.create_task(self.live_engine.initialize())
+            except RuntimeError:
+                # No running event loop (e.g. called from a sync context); the
+                # engine's start() path already initializes the live engine.
+                logger.debug("start_session: no running event loop; live engine init deferred.")
 
         return sess
 
-    def pause_trading(self) -> Optional[dict]:
+    async def pause_trading(self) -> Optional[dict]:
         """Pauses active quoting and fills."""
-        self.is_trading_active = False
-        self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
-        if not self.config.dry_run:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self.live_engine.cancel_all_orders())
-            except Exception:
-                pass
+        async with self._session_lock:
+            self.is_trading_active = False
+            self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+            if not self.config.dry_run:
+                await self.live_engine.cancel_all_orders()
 
-        sess = None
-        if self.db and self.current_session_id != "STANDBY":
-            sess = self.db.pause_session(self.current_session_id)
-        logger.info(f"⏸ Trading Session PAUSED.")
-        return sess
+            sess = None
+            if self.db and self.current_session_id != "STANDBY":
+                sess = self.db.pause_session(self.current_session_id)
+            logger.info(f"⏸ Trading Session PAUSED.")
+            return sess
 
-    def resume_trading(self) -> Optional[dict]:
+    async def resume_trading(self) -> Optional[dict]:
         """Resumes quoting and fills for active session."""
-        self.is_trading_active = True
-        sess = None
-        if self.db and self.current_session_id != "STANDBY":
-            sess = self.db.resume_session(self.current_session_id)
-        logger.info(f"▶ Trading Session RESUMED.")
-        return sess
+        async with self._session_lock:
+            # Guard: refuse to resume when there is no active session, so trades
+            # are never recorded under STANDBY/null.
+            if self.current_session_id == "STANDBY":
+                logger.warning("resume_trading: no active session to resume (STANDBY).")
+                return {"session_id": "STANDBY", "status": "STANDBY", "resumed": False}
+            self.is_trading_active = True
+            sess = None
+            if self.db and self.current_session_id != "STANDBY":
+                sess = self.db.resume_session(self.current_session_id)
+            logger.info(f"▶ Trading Session RESUMED.")
+            return sess
 
-    def stop_session(self) -> Optional[dict]:
+    async def stop_session(self) -> Optional[dict]:
         """Stops and archives the current session."""
-        self.is_trading_active = False
-        self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
-        if not self.config.dry_run:
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(self.live_engine.cancel_all_orders())
-            except Exception:
-                pass
+        async with self._session_lock:
+            self.is_trading_active = False
+            self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+            if not self.config.dry_run:
+                await self.live_engine.cancel_all_orders()
 
-        sess = None
-        if self.db and self.current_session_id != "STANDBY":
-            sess = self.db.stop_session(self.current_session_id)
-        self.current_session_id = "STANDBY"
-        self.session_start_time = 0.0
-        logger.info(f"⏹ Trading Session STOPPED and archived.")
-        return sess
+            sess = None
+            if self.db and self.current_session_id != "STANDBY":
+                sess = self.db.stop_session(self.current_session_id)
+            self.current_session_id = "STANDBY"
+            self.session_start_time = 0.0
+            logger.info(f"⏹ Trading Session STOPPED and archived.")
+            return sess
 
     async def _on_binance_tick(self, feed: BinanceFeed):
         """Triggered whenever Binance sub-50ms spot tick arrives."""
