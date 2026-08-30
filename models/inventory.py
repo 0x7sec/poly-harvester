@@ -173,7 +173,7 @@ class InventoryManager:
         except Exception as e:
             logger.error(f"Error restoring inventory state from database: {e}")
 
-    def on_fill(self, side: str, price: float, shares: float, fee: float = 0.0):
+    def on_fill(self, side: str, price: float, shares: float, fee: float = 0.0, auto_merge: bool = True):
         """Processes an executed limit order fill and persists position updates."""
         self.total_fees_paid += fee
         side_upper = side.upper()
@@ -188,55 +188,75 @@ class InventoryManager:
                 self.db.save_position("DOWN", self.down.shares, self.down.avg_cost, self.down.total_spent)
 
         # Check if complete sets can be formed and merged
-        self._check_and_merge_complete_sets()
+        if auto_merge:
+            self._check_and_merge_complete_sets()
         self._check_stop_loss()
+
+    def get_mergeable_sets(self) -> float:
+        """Returns the number of candidate complete sets that can be merged profitably."""
+        matchable_sets = min(self.up.shares, self.down.shares)
+        if matchable_sets >= 1.0:
+            combined_cost_per_set = self.up.avg_cost + self.down.avg_cost
+            if combined_cost_per_set <= self.max_combined_cost:
+                return matchable_sets
+        return 0.0
+
+    def execute_complete_set_merge(self, sets_to_merge: Optional[float] = None) -> Optional[dict]:
+        """
+        Executes complete-set merge for the specified or maximum allowable profitable sets,
+        updating PnL, reducing shares, and persisting to SQLite.
+        """
+        max_mergeable = self.get_mergeable_sets()
+        if max_mergeable <= 0:
+            return None
+
+        sets = min(max_mergeable, sets_to_merge) if sets_to_merge is not None else max_mergeable
+        if sets <= 0:
+            return None
+
+        combined_cost_per_set = self.up.avg_cost + self.down.avg_cost
+        net_profit_per_set = 1.00 - combined_cost_per_set
+        total_profit_locked = sets * net_profit_per_set
+        self.realized_arbitrage_pnl += total_profit_locked
+        self.total_complete_sets_merged += sets
+
+        logger.info(
+            f"[COMPLETE SET MERGED] {sets:.1f} sets merged @ avg cost ${combined_cost_per_set:.3f} | "
+            f"Locked Profit: +${total_profit_locked:.2f} | "
+            f"Cumulative PnL: +${self.realized_arbitrage_pnl:.2f}"
+        )
+
+        # Deduct merged tokens from inventory
+        self.up.reduce_shares(sets)
+        self.down.reduce_shares(sets)
+
+        # Persist positions and ledger event
+        if self.db:
+            self.db.save_position("UP", self.up.shares, self.up.avg_cost, self.up.total_spent)
+            self.db.save_position("DOWN", self.down.shares, self.down.avg_cost, self.down.total_spent)
+            self.db.log_complete_set(
+                sets_merged=sets,
+                up_avg_cost=self.up.avg_cost,
+                down_avg_cost=self.down.avg_cost,
+                combined_cost=combined_cost_per_set,
+                profit_locked=total_profit_locked,
+                cumulative_pnl=self.realized_arbitrage_pnl,
+                session_id=self.session_id,
+            )
+
+        return {
+            "sets_merged": sets,
+            "combined_cost": combined_cost_per_set,
+            "profit_locked": total_profit_locked,
+            "cumulative_pnl": self.realized_arbitrage_pnl,
+        }
 
     def _check_and_merge_complete_sets(self):
         """
         Merges matching UP and DOWN tokens into complete sets (1 UP + 1 DOWN = $1.00 USDC).
         Strict Invariant: ONLY merges if combined cost per set <= max_combined_cost (guaranteeing profit).
         """
-        matchable_sets = min(self.up.shares, self.down.shares)
-
-        if matchable_sets >= 1.0:
-            combined_cost_per_set = self.up.avg_cost + self.down.avg_cost
-
-            # Strict guard: Never merge at a loss!
-            if combined_cost_per_set > self.max_combined_cost:
-                logger.debug(
-                    f"[MERGE DEFERRED] {matchable_sets:.1f} candidate sets @ combined cost ${combined_cost_per_set:.3f} "
-                    f"exceeds max allowable cost ceiling ${self.max_combined_cost:.3f}. Holding for better VWAP."
-                )
-                return
-
-            net_profit_per_set = 1.00 - combined_cost_per_set
-            total_profit_locked = matchable_sets * net_profit_per_set
-            self.realized_arbitrage_pnl += total_profit_locked
-            self.total_complete_sets_merged += matchable_sets
-
-            logger.info(
-                f"[COMPLETE SET MERGED] {matchable_sets:.1f} sets merged @ avg cost ${combined_cost_per_set:.3f} | "
-                f"Locked Profit: +${total_profit_locked:.2f} | "
-                f"Cumulative PnL: +${self.realized_arbitrage_pnl:.2f}"
-            )
-
-            # Deduct merged tokens from inventory
-            self.up.reduce_shares(matchable_sets)
-            self.down.reduce_shares(matchable_sets)
-
-            # Persist positions and ledger event
-            if self.db:
-                self.db.save_position("UP", self.up.shares, self.up.avg_cost, self.up.total_spent)
-                self.db.save_position("DOWN", self.down.shares, self.down.avg_cost, self.down.total_spent)
-                self.db.log_complete_set(
-                    sets_merged=matchable_sets,
-                    up_avg_cost=self.up.avg_cost,
-                    down_avg_cost=self.down.avg_cost,
-                    combined_cost=combined_cost_per_set,
-                    profit_locked=total_profit_locked,
-                    cumulative_pnl=self.realized_arbitrage_pnl,
-                    session_id=self.session_id,
-                )
+        return self.execute_complete_set_merge()
 
     # Backward compatibility alias
     record_fill = on_fill

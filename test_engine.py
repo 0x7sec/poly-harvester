@@ -276,6 +276,144 @@ class TestPolymarketQuantEngine(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_live_engine_quote_rate_limiting_cooldown(self):
+        """Tests that live engine throttles quote cancellations/replacements to avoid spamming the CLOB."""
+        import asyncio
+        from config import BotConfig
+        from execution.live_engine import LiveTradingEngine
+        from models.inventory import InventoryManager
+
+        async def _test():
+            config = BotConfig(dry_run=False, order_size_shares=10.0)
+            inventory = InventoryManager(max_combined_cost=0.960)
+            engine = LiveTradingEngine(config=config, inventory=inventory)
+            
+            placed_orders = []
+            cancelled_orders = []
+
+            class MockPolyManager:
+                async def ensure_secure_client(self):
+                    return True
+                def get_telemetry(self):
+                    return {"geoblock": {"blocked": False}}
+                async def place_limit_order(self, token_id, side, price, amount_shares):
+                    ord_id = f"ord_{len(placed_orders)+1}"
+                    placed_orders.append({"id": ord_id, "price": price, "side": side})
+                    return {"status": "SUCCESS", "order_id": ord_id}
+                async def cancel_order(self, order_id):
+                    cancelled_orders.append(order_id)
+                    return {"status": "SUCCESS"}
+
+            engine.poly_manager = MockPolyManager()
+
+            # 1. First quote -> Placed
+            await engine.sync_orders(
+                quote_up=0.45,
+                quote_down=0.40,
+                allow_up=True,
+                allow_down=True,
+                token_id_up="tok_up",
+                token_id_down="tok_dn",
+            )
+            self.assertEqual(len(placed_orders), 2)
+            self.assertEqual(placed_orders[0]["price"], 0.45)
+            self.assertEqual(placed_orders[1]["price"], 0.40)
+
+            # 2. Immediate micro-jitter (sub-cent: 0.452) -> Ignored
+            await engine.sync_orders(
+                quote_up=0.452,
+                quote_down=0.40,
+                allow_up=True,
+                allow_down=True,
+                token_id_up="tok_up",
+                token_id_down="tok_dn",
+            )
+            self.assertEqual(len(placed_orders), 2, "Sub-cent quote jitter must not spam CLOB")
+
+            # 3. Immediate 2-cent jump (0.47) within cooldown -> Ignored by cooldown
+            await engine.sync_orders(
+                quote_up=0.47,
+                quote_down=0.40,
+                allow_up=True,
+                allow_down=True,
+                token_id_up="tok_up",
+                token_id_down="tok_dn",
+            )
+            self.assertEqual(len(placed_orders), 2, "Rapid tick changes within 0.5s cooldown must not spam CLOB")
+
+            # 4. Simulate elapsed cooldown > 0.5s -> Now replaces order
+            engine._last_quote_time_up = 0.0
+            await engine.sync_orders(
+                quote_up=0.47,
+                quote_down=0.40,
+                allow_up=True,
+                allow_down=True,
+                token_id_up="tok_up",
+                token_id_down="tok_dn",
+            )
+            self.assertEqual(len(placed_orders), 3)
+            self.assertEqual(placed_orders[-1]["price"], 0.47)
+            self.assertEqual(len(cancelled_orders), 1)
+
+        asyncio.run(_test())
+
+    def test_live_engine_onchain_merge_failure_protection(self):
+        """Tests that failed on-chain complete set merges do not corrupt inventory or cause ghost merges."""
+        import asyncio
+        from config import BotConfig
+        from execution.live_engine import LiveTradingEngine
+        from models.inventory import InventoryManager
+
+        async def _test():
+            config = BotConfig(dry_run=False)
+            inventory = InventoryManager(max_combined_cost=0.960)
+            engine = LiveTradingEngine(config=config, inventory=inventory)
+
+            # Fill 20 UP @ 0.45 and 20 DOWN @ 0.45 (mergeable 20 sets @ 0.90) without auto-merge
+            inventory.on_fill("UP", price=0.45, shares=20.0, auto_merge=False)
+            inventory.on_fill("DOWN", price=0.45, shares=20.0, auto_merge=False)
+
+            self.assertEqual(inventory.up.shares, 20.0)
+            self.assertEqual(inventory.down.shares, 20.0)
+            self.assertEqual(inventory.total_complete_sets_merged, 0.0)
+
+            # Scenario A: On-chain transaction reverts / fails
+            class FailingPolyManager:
+                async def merge_complete_sets(self, condition_id, amount):
+                    return {"status": "ERROR", "error": "execution reverted: gas limit exceeded"}
+
+            engine.poly_manager = FailingPolyManager()
+            
+            class MockFeed:
+                condition_id = "0xcond123"
+
+            # Check fills / trigger merge
+            engine._last_fill_check_time = 0.0
+            await engine.check_fills(feed=MockFeed())
+
+            # Invariant: Inventory balances must remain intact!
+            self.assertEqual(inventory.up.shares, 20.0, "Inventory must NOT be deducted on failed on-chain merge")
+            self.assertEqual(inventory.down.shares, 20.0, "Inventory must NOT be deducted on failed on-chain merge")
+            self.assertEqual(inventory.total_complete_sets_merged, 0.0)
+            self.assertEqual(inventory.realized_arbitrage_pnl, 0.0)
+
+            # Scenario B: On-chain transaction succeeds
+            class SuccessfulPolyManager:
+                async def merge_complete_sets(self, condition_id, amount):
+                    return {"status": "SUCCESS", "tx_handle": "0xtxhash456"}
+
+            engine.poly_manager = SuccessfulPolyManager()
+            engine._last_fill_check_time = 0.0
+            await engine.check_fills(feed=MockFeed())
+
+            # Now positions are cleanly merged
+            self.assertEqual(inventory.up.shares, 0.0)
+            self.assertEqual(inventory.down.shares, 0.0)
+            self.assertEqual(inventory.total_complete_sets_merged, 20.0)
+            self.assertAlmostEqual(inventory.realized_arbitrage_pnl, 2.00, places=2)
+
+        asyncio.run(_test())
+
 
 if __name__ == "__main__":
     unittest.main()

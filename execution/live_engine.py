@@ -42,6 +42,9 @@ class LiveTradingEngine:
         self.active_order_down: Optional[Dict[str, Any]] = None
         self._is_initialized = False
         self._last_fill_check_time = 0.0
+        self._last_quote_time_up = 0.0
+        self._last_quote_time_down = 0.0
+        self._min_quote_interval_sec = 0.5  # Max 2 order replacements/sec per leg to prevent CLOB rate limit exhaustion
 
     async def initialize(self):
         """Initializes connection to Polymarket CLOB using the official SDK."""
@@ -68,7 +71,7 @@ class LiveTradingEngine:
     ):
         """
         Calculates required live orders and synchronizes with Polymarket CLOB.
-        Enforces bankroll limits, dynamic clip-sizing, and inventory caps.
+        Enforces bankroll limits, dynamic clip-sizing, rate-limiting cooldowns, and inventory caps.
         """
         if self.config.dry_run:
             return
@@ -97,6 +100,7 @@ class LiveTradingEngine:
 
         target_token_up = token_id_up or self.config.token_id_up
         target_token_down = token_id_down or self.config.token_id_down
+        now = time.time()
 
         # 1. Synchronize UP Limit Bid
         if allow_up and target_token_up and quote_up > 0.01:
@@ -104,10 +108,13 @@ class LiveTradingEngine:
             if self.active_order_up:
                 prev_price = self.active_order_up.get("price", 0.0)
                 prev_token = self.active_order_up.get("token_id", "")
-                if prev_token == target_token_up and abs(quote_up - prev_price) < 0.005:
+                if prev_token == target_token_up and abs(quote_up - prev_price) < 0.009:
+                    needs_new_order = False
+                elif (now - self._last_quote_time_up) < self._min_quote_interval_sec:
                     needs_new_order = False
 
             if needs_new_order:
+                self._last_quote_time_up = now
                 if self.active_order_up and self.active_order_up.get("order_id"):
                     try:
                         await self.poly_manager.cancel_order(self.active_order_up["order_id"])
@@ -137,6 +144,7 @@ class LiveTradingEngine:
                     }
                     logger.info(f"🟢 [LIVE] Placed Bid UP: {self.config.order_size_shares} shs @ ${quote_up:.2f} (ID: {order_id})")
         elif not allow_up and self.active_order_up:
+            self._last_quote_time_up = now
             if self.active_order_up.get("order_id"):
                 try:
                     await self.poly_manager.cancel_order(self.active_order_up["order_id"])
@@ -150,10 +158,13 @@ class LiveTradingEngine:
             if self.active_order_down:
                 prev_price = self.active_order_down.get("price", 0.0)
                 prev_token = self.active_order_down.get("token_id", "")
-                if prev_token == target_token_down and abs(quote_down - prev_price) < 0.005:
+                if prev_token == target_token_down and abs(quote_down - prev_price) < 0.009:
+                    needs_new_order = False
+                elif (now - self._last_quote_time_down) < self._min_quote_interval_sec:
                     needs_new_order = False
 
             if needs_new_order:
+                self._last_quote_time_down = now
                 if self.active_order_down and self.active_order_down.get("order_id"):
                     try:
                         await self.poly_manager.cancel_order(self.active_order_down["order_id"])
@@ -183,6 +194,7 @@ class LiveTradingEngine:
                     }
                     logger.info(f"🔴 [LIVE] Placed Bid DOWN: {self.config.order_size_shares} shs @ ${quote_down:.2f} (ID: {order_id})")
         elif not allow_down and self.active_order_down:
+            self._last_quote_time_down = now
             if self.active_order_down.get("order_id"):
                 try:
                     await self.poly_manager.cancel_order(self.active_order_down["order_id"])
@@ -234,7 +246,7 @@ class LiveTradingEngine:
                                 "market_title": self.active_order_up.get("market_title", getattr(feed, "market_title", "")),
                                 "market_slug": self.active_order_up.get("market_slug", getattr(feed, "market_slug", "")),
                             }
-                            self.inventory.on_fill("UP", fill_price, delta_shares)
+                            self.inventory.on_fill("UP", fill_price, delta_shares, auto_merge=False)
                             if self.db:
                                 try:
                                     self.db.log_trade(
@@ -283,7 +295,7 @@ class LiveTradingEngine:
                                 "market_title": self.active_order_down.get("market_title", getattr(feed, "market_title", "")),
                                 "market_slug": self.active_order_down.get("market_slug", getattr(feed, "market_slug", "")),
                             }
-                            self.inventory.on_fill("DOWN", fill_price, delta_shares)
+                            self.inventory.on_fill("DOWN", fill_price, delta_shares, auto_merge=False)
                             if self.db:
                                 try:
                                     self.db.log_trade(
@@ -306,18 +318,29 @@ class LiveTradingEngine:
                     logger.debug(f"Error checking live DOWN order fill: {e}")
 
         # Auto-Trigger On-Chain Complete Set Merge if eligible
-        if feed and getattr(feed, "condition_id", None):
-            mergeable = min(self.inventory.up.shares, self.inventory.down.shares)
-            if mergeable >= 10.0:
+        mergeable = self.inventory.get_mergeable_sets()
+        if mergeable >= 1.0:
+            target_cond_id = getattr(feed, "condition_id", None)
+            if not target_cond_id and self.active_order_up:
+                target_cond_id = self.active_order_up.get("condition_id")
+            if not target_cond_id and self.active_order_down:
+                target_cond_id = self.active_order_down.get("condition_id")
+
+            if target_cond_id:
                 try:
                     res = await self.merge_complete_sets_onchain(
-                        condition_id=feed.condition_id,
+                        condition_id=target_cond_id,
                         amount=str(int(mergeable)),
                     )
-                    if res.get("status") == "SUCCESS":
+                    if res.get("status") in ("SUCCESS", "SIMULATED"):
+                        self.inventory.execute_complete_set_merge(mergeable)
                         logger.info(f"🎉 [ON-CHAIN MERGE] Successfully merged {mergeable:.1f} complete sets into USDC!")
+                    else:
+                        logger.error(f"On-chain complete set merge failed: {res.get('error')}. Position balances preserved.")
                 except Exception as e:
-                    logger.warning(f"On-chain merge attempt: {e}")
+                    logger.error(f"On-chain complete set merge exception: {e}. Position balances preserved.")
+            else:
+                self.inventory.execute_complete_set_merge(mergeable)
 
         return fills
 
