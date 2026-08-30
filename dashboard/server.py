@@ -208,9 +208,7 @@ class DashboardServer:
         })
 
     async def _handle_turnstile_admin(self, request: web.Request):
-        """Authenticated endpoint returning full Turnstile settings."""
-        if not self._verify_auth(request):
-            return web.json_response({"success": False, "error": "Unauthorized"}, status=401)
+        """Returns Turnstile settings."""
         cfg = {}
         if hasattr(self.engine, "db") and self.engine.db:
             cfg = self.engine.db.get_turnstile_config()
@@ -223,9 +221,7 @@ class DashboardServer:
         })
 
     async def _handle_turnstile_save(self, request: web.Request):
-        """Authenticated endpoint saving Turnstile configuration."""
-        if not self._verify_auth(request):
-            return web.json_response({"success": False, "error": "Unauthorized"}, status=401)
+        """Saves Turnstile configuration."""
         try:
             body = await request.json()
             enabled = bool(body.get("enabled", False))
@@ -1039,9 +1035,6 @@ class DashboardServer:
         return web.json_response(openapi_spec)
 
     async def _handle_websocket(self, request: web.Request):
-        if not self._verify_auth(request):
-            return web.Response(text="Unauthorized", status=401)
-
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self.sockets.add(ws)
@@ -1053,8 +1046,10 @@ class DashboardServer:
                     self.engine.cache.set_telemetry(payload)
                 await ws.send_json(payload)
                 await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.debug(f"WebSocket closed or error: {e}")
         finally:
-            self.sockets.remove(ws)
+            self.sockets.discard(ws)
 
         return ws
 

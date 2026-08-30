@@ -236,18 +236,12 @@ function showToast(message, type = "success") {
     }, 3800);
 }
 
-// ==================== Authentication Flow ====================
-
-btnAutofillAdmin.addEventListener("click", () => {
-    loginUsername.value = "admin";
-    loginPassword.value = "polyharvester2026";
-    loginErrorMsg.classList.add("hidden");
-    showToast("Default credentials filled", "success");
-});
+// ==================== Authentication Helpers ====================
 
 async function checkExistingAuth() {
     if (!authToken) {
-        showLoginModal();
+        // Non-blocking: connect WebSocket for live public telemetry immediately
+        connectWebSocket();
         return;
     }
     try {
@@ -256,87 +250,16 @@ async function checkExistingAuth() {
         });
         if (res.ok) {
             const data = await res.json();
-            currentUserDisplay.textContent = (data.user && data.user.username) ? data.user.username.toUpperCase() : "ADMIN";
-            hideLoginModal();
-            connectWebSocket();
-            loadHistoricalLogs();
-        } else {
-            showLoginModal();
+            if (currentUserDisplay && data.user && data.user.username) {
+                currentUserDisplay.textContent = data.user.username.toUpperCase();
+            }
         }
     } catch (e) {
-        showLoginModal();
+        console.warn("Auth verify notice:", e);
     }
+    connectWebSocket();
+    loadHistoricalLogs();
 }
-
-function showLoginModal() {
-    authModal.classList.remove("hidden");
-    authModal.style.display = "flex";
-    refreshIcons();
-}
-
-function hideLoginModal() {
-    authModal.classList.add("hidden");
-    authModal.style.display = "none";
-    loginErrorMsg.classList.add("hidden");
-}
-
-loginForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const u = loginUsername.value.trim();
-    const p = loginPassword.value;
-    loginErrorMsg.classList.add("hidden");
-
-    try {
-        const res = await fetch("/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username: u, password: p })
-        });
-        const data = await res.json();
-
-        if (res.ok && data.success) {
-            authToken = data.token;
-            localStorage.setItem("poly_token", authToken);
-            currentUserDisplay.textContent = (data.user && data.user.username) ? data.user.username.toUpperCase() : u.toUpperCase();
-            hideLoginModal();
-            showToast("Authenticated. Connecting live telemetry...", "success");
-            connectWebSocket();
-            loadHistoricalLogs();
-        } else {
-            loginErrorMsg.textContent = data.error || "Authentication failed.";
-            loginErrorMsg.classList.remove("hidden");
-        }
-    } catch (err) {
-        loginErrorMsg.textContent = "Unable to connect to authentication server.";
-        loginErrorMsg.classList.remove("hidden");
-    }
-});
-
-btnLogout.addEventListener("click", async () => {
-    const accepted = await customConfirm({
-        title: "Log Out of Terminal",
-        message: "Are you sure you want to end your active session on the Quant Control Center?",
-        type: "warning",
-        confirmText: "Log Out",
-        cancelText: "Stay Connected",
-        icon: "log-out"
-    });
-
-    if (accepted) {
-        try {
-            await fetch("/api/auth/logout", {
-                method: "POST",
-                headers: { "X-Auth-Token": authToken }
-            });
-        } catch (e) {}
-        authToken = "";
-        localStorage.removeItem("poly_token");
-        if (ws) ws.close();
-        currentUserDisplay.textContent = "GUEST";
-        showToast("Logged out successfully.", "warning");
-        showLoginModal();
-    }
-});
 
 // ==================== Profile & Security Settings ====================
 
@@ -428,10 +351,10 @@ function connectWebSocket() {
     if (ws) {
         try { ws.close(); } catch (e) {}
     }
-    if (!authToken) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(authToken)}`;
+    const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : "";
+    const wsUrl = `${protocol}//${window.location.host}/ws${tokenParam}`;
 
     wsStatusText.textContent = "CONNECTING...";
     wsStatus.style.borderColor = "rgba(245, 158, 11, 0.4)";
@@ -2196,16 +2119,9 @@ if (btnLogout) {
     });
 }
 
-function checkExistingAuth() {
-    if (!authToken) {
-        showLoginModal();
-    } else {
-        connectWebSocket();
-        loadHistoricalLogs();
-    }
-}
-
 // Expose functions globally for onclick attributes in dynamically generated rows
+window.showTurnstileModal = showTurnstileModal;
+window.hideTurnstileModal = hideTurnstileModal;
 window.toggleMcpKey = toggleMcpKey;
 window.deleteMcpKey = deleteMcpKey;
 window.inspectMcpPayload = inspectMcpPayload;
