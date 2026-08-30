@@ -114,6 +114,9 @@ class DashboardServer:
 
     def _get_client_ip(self, request: web.Request) -> str:
         """Extracts client IP address from proxy headers or remote connection."""
+        cf_ip = request.headers.get("CF-Connecting-IP")
+        if cf_ip:
+            return cf_ip.strip()
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:
             return forwarded.split(",")[0].strip()
@@ -292,7 +295,7 @@ class DashboardServer:
                         async with aiohttp.ClientSession() as session:
                             async with session.post(
                                 "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-                                json={
+                                data={
                                     "secret": t_cfg["secret_key"].strip(),
                                     "response": cf_token,
                                     "remoteip": client_ip,
@@ -301,10 +304,11 @@ class DashboardServer:
                             ) as cf_resp:
                                 cf_data = await cf_resp.json()
                                 if not cf_data.get("success"):
+                                    err_codes = cf_data.get("error-codes", [])
                                     logger.warning(f"Turnstile verification rejected for IP {client_ip}: {cf_data}")
                                     return web.json_response({
                                         "success": False,
-                                        "error": "Cloudflare Turnstile verification failed. Please refresh and try again.",
+                                        "error": f"Cloudflare Turnstile verification failed ({', '.join(err_codes) if err_codes else 'invalid token'}). Please refresh and try again.",
                                     }, status=403)
                     except Exception as cf_err:
                         logger.error(f"Error connecting to Cloudflare Turnstile verification endpoint: {cf_err}")
