@@ -7,6 +7,7 @@ Implements:
 4. EIP-712 Signed Limit Orders & Complete-Set On-Chain Merging.
 """
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -192,13 +193,15 @@ class GeoblockChecker:
                 "error": None,
             }
         except Exception as e:
-            logger.warning(f"Geoblock check fallback: {e}")
+            logger.warning(f"Geoblock check fallback failed: {e}")
+            # Treat an unreachable geoblock endpoint as UNKNOWN (not ELIGIBLE)
+            # so a geoblocked bot is not silently allowed to trade live.
             return {
                 "blocked": False,
                 "ip": "Direct IP",
-                "country": "Eligible",
-                "region": "Global",
-                "status": "ELIGIBLE",
+                "country": "Unknown",
+                "region": "Unknown",
+                "status": "UNKNOWN",
                 "error": str(e),
             }
 

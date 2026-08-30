@@ -3,6 +3,7 @@ Configuration parameters for the Poly-Harvester Quant Engine with Binance Price 
 Mandatory Risk Safeguards, and Secure Remote Dashboard / MCP Server.
 """
 from dataclasses import dataclass, field
+from typing import Optional
 import os
 
 try:
@@ -46,8 +47,8 @@ class BotConfig:
     enable_dashboard: bool = True
     dashboard_host: str = "0.0.0.0"
     dashboard_port: int = 8443
-    dashboard_auth_token: str = field(
-        default_factory=lambda: os.getenv("DASHBOARD_AUTH_TOKEN", "poly-harvester-secure-key-2026")
+    dashboard_auth_token: Optional[str] = field(
+        default_factory=lambda: os.getenv("DASHBOARD_AUTH_TOKEN") or None
     )
 
     # Wallet / API Settings for Live Execution (When dry_run is False)

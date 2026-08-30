@@ -6,6 +6,7 @@ performance analytics, risk control, and emergency circuit breaker tools over st
 import asyncio
 import json
 import logging
+import math
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -174,15 +175,42 @@ class PolyHarvesterMCPServer:
             updated = []
             updated_dict = {}
 
+            # Risk parameter bounds: field -> (min, max). Rejects non-numeric,
+            # NaN/Inf, and out-of-range values so the cost ceiling / stop-loss
+            # invariants can't be silently weakened via MCP.
+            risk_bounds = {
+                "order_size_shares": (0.0, 100000.0),
+                "max_inventory_imbalance": (0.0, 100000.0),
+                "max_combined_cost": (0.01, 0.99),
+                "daily_stop_loss_usd": (1.0, 1000000.0),
+            }
+
+            def _validate(field_name: str):
+                raw = arguments[field_name]
+                try:
+                    v = float(raw)
+                except (TypeError, ValueError):
+                    return None, f"Invalid numeric value for '{field_name}': {raw!r}"
+                if not math.isfinite(v):
+                    return None, f"'{field_name}' must be a finite number (got NaN/Inf)."
+                lo, hi = risk_bounds[field_name]
+                if not (lo <= v <= hi):
+                    return None, f"'{field_name}' must be between {lo} and {hi} (got {v})."
+                return v, None
+
             if "order_size_shares" in arguments:
-                val = float(arguments["order_size_shares"])
+                val, err = _validate("order_size_shares")
+                if err:
+                    return {"error": err}
                 self.engine.config.order_size_shares = val
                 self.engine.paper_engine.order_size_shares = val
                 updated.append(f"order_size={val}")
                 updated_dict["order_size_shares"] = val
 
             if "max_inventory_imbalance" in arguments:
-                val = float(arguments["max_inventory_imbalance"])
+                val, err = _validate("max_inventory_imbalance")
+                if err:
+                    return {"error": err}
                 self.engine.config.max_inventory_imbalance = val
                 self.engine.inventory.max_imbalance = val
                 self.engine.quoter.max_imbalance = val
@@ -190,7 +218,9 @@ class PolyHarvesterMCPServer:
                 updated_dict["max_inventory_imbalance"] = val
 
             if "max_combined_cost" in arguments:
-                val = float(arguments["max_combined_cost"])
+                val, err = _validate("max_combined_cost")
+                if err:
+                    return {"error": err}
                 self.engine.config.max_combined_cost = val
                 self.engine.quoter.max_combined_cost = val
                 self.engine.inventory.max_combined_cost = val
@@ -198,7 +228,9 @@ class PolyHarvesterMCPServer:
                 updated_dict["max_combined_cost"] = val
 
             if "daily_stop_loss_usd" in arguments:
-                val = float(arguments["daily_stop_loss_usd"])
+                val, err = _validate("daily_stop_loss_usd")
+                if err:
+                    return {"error": err}
                 self.engine.config.daily_stop_loss_usd = val
                 self.engine.inventory.daily_stop_loss = val
                 updated.append(f"stop_loss=${val}")

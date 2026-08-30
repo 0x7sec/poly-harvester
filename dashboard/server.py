@@ -9,12 +9,13 @@ import csv
 import io
 import json
 import logging
+import math
 import os
 import secrets
 import time
 import urllib.parse
 import urllib.request
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 import aiohttp
 from aiohttp import web
 from mcp_server import PolyHarvesterMCPServer
@@ -24,7 +25,7 @@ logger = logging.getLogger("PolyHarvesterDashboard")
 
 
 class DashboardServer:
-    def __init__(self, engine, host: str = "0.0.0.0", port: int = 8443, auth_token: str = "poly-harvester-secure-key-2026"):
+    def __init__(self, engine, host: str = "0.0.0.0", port: int = 8443, auth_token: Optional[str] = None):
         self.engine = engine
         self.host = host
         self.port = port
@@ -100,8 +101,12 @@ class DashboardServer:
             if session:
                 return True
 
-        # 2. Validate fallback static token
-        return token == self.auth_token
+        # 2. Validate fallback static token (only when explicitly configured via
+        #    DASHBOARD_AUTH_TOKEN). When unset, the DB session token is the sole
+        #    source of truth — no hardcoded fallback.
+        if self.auth_token:
+            return token == self.auth_token
+        return False
 
     def _authenticate_mcp_request(self, request: web.Request) -> Tuple[bool, str, Optional[dict]]:
         """Authenticates user session or MCP API Key. Returns (is_authenticated, client_name, key_record)."""
@@ -239,7 +244,9 @@ class DashboardServer:
         })
 
     async def _handle_turnstile_admin(self, request: web.Request):
-        """Returns Turnstile settings."""
+        """Returns Turnstile settings (requires authentication)."""
+        if not self._verify_auth(request):
+            return web.json_response({"error": "Unauthorized"}, status=401)
         cfg = {}
         if hasattr(self.engine, "db") and self.engine.db:
             cfg = self.engine.db.get_turnstile_config()
@@ -395,7 +402,7 @@ class DashboardServer:
             session = self.engine.db.validate_session(token)
             if session:
                 return web.json_response({"authenticated": True, "user": session})
-        if token == self.auth_token:
+        if self.auth_token and token == self.auth_token:
             return web.json_response({"authenticated": True, "user": {"username": "admin", "role": "admin"}})
         return web.json_response({"authenticated": False, "error": "Not authenticated"}, status=401)
 
@@ -662,6 +669,24 @@ class DashboardServer:
         logger.critical("🚨 Emergency circuit breaker triggered via Web Dashboard!")
         return web.json_response({"success": True, "message": "EMERGENCY SHUTDOWN TRIGGERED."})
 
+    @staticmethod
+    def _parse_risk_value(field_name: str, raw: Any, lo: float, hi: float) -> Tuple[float, Optional[str]]:
+        """Parses and range-validates a single risk parameter.
+
+        Returns (value, None) on success, or (raw, error_message) on failure.
+        Rejects non-numeric input, NaN, and out-of-range values so the cost
+        ceiling / stop-loss invariants can't be silently weakened.
+        """
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return raw, f"Invalid numeric value for '{field_name}': {raw!r}"
+        if not math.isfinite(val):
+            return raw, f"'{field_name}' must be a finite number (got NaN/Inf)."
+        if not (lo <= val <= hi):
+            return raw, f"'{field_name}' must be between {lo} and {hi} (got {val})."
+        return val, None
+
     async def _handle_update_risk(self, request: web.Request):
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
@@ -669,28 +694,44 @@ class DashboardServer:
             body = await request.json()
             updated_cache = {}
 
+            # Risk parameter bounds: (field, min, max)
+            risk_bounds = {
+                "order_size_shares": (0.0, 100000.0),
+                "max_inventory_imbalance": (0.0, 100000.0),
+                "max_combined_cost": (0.01, 0.99),
+                "daily_stop_loss_usd": (1.0, 1000000.0),
+            }
+
             if "order_size_shares" in body:
-                val = float(body["order_size_shares"])
+                val, err = self._parse_risk_value("order_size_shares", body["order_size_shares"], *risk_bounds["order_size_shares"])
+                if err:
+                    return web.json_response({"error": err}, status=400)
                 self.engine.config.order_size_shares = val
                 self.engine.paper_engine.order_size_shares = val
                 updated_cache["order_size_shares"] = val
 
             if "max_inventory_imbalance" in body:
-                val = float(body["max_inventory_imbalance"])
+                val, err = self._parse_risk_value("max_inventory_imbalance", body["max_inventory_imbalance"], *risk_bounds["max_inventory_imbalance"])
+                if err:
+                    return web.json_response({"error": err}, status=400)
                 self.engine.config.max_inventory_imbalance = val
                 self.engine.inventory.max_imbalance = val
                 self.engine.quoter.max_imbalance = val
                 updated_cache["max_inventory_imbalance"] = val
 
             if "max_combined_cost" in body:
-                val = float(body["max_combined_cost"])
+                val, err = self._parse_risk_value("max_combined_cost", body["max_combined_cost"], *risk_bounds["max_combined_cost"])
+                if err:
+                    return web.json_response({"error": err}, status=400)
                 self.engine.config.max_combined_cost = val
                 self.engine.quoter.max_combined_cost = val
                 self.engine.inventory.max_combined_cost = val
                 updated_cache["max_combined_cost"] = val
 
             if "daily_stop_loss_usd" in body:
-                val = float(body["daily_stop_loss_usd"])
+                val, err = self._parse_risk_value("daily_stop_loss_usd", body["daily_stop_loss_usd"], *risk_bounds["daily_stop_loss_usd"])
+                if err:
+                    return web.json_response({"error": err}, status=400)
                 self.engine.config.daily_stop_loss_usd = val
                 self.engine.inventory.daily_stop_loss = val
                 updated_cache["daily_stop_loss_usd"] = val

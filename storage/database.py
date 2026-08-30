@@ -279,19 +279,9 @@ class DatabaseManager:
                     )
                     logger.info("Default user 'admin' seeded with default credentials.")
 
-                # Seed default MCP API key if none exists
-                cursor.execute("SELECT COUNT(*) FROM mcp_api_keys")
-                if cursor.fetchone()[0] == 0:
-                    raw_default = "mcp_live_default_agent_key_2026"
-                    k_hash = hashlib.sha256(raw_default.encode()).hexdigest()
-                    cursor.execute(
-                        """
-                        INSERT INTO mcp_api_keys (name, key_prefix, key_hash, role, enabled, created_at)
-                        VALUES (?, ?, ?, 'read_write', 1, ?)
-                        """,
-                        ("Default Local Agent", "mcp_live_defau...", k_hash, time.time()),
-                    )
-                    logger.info("Default MCP API Key seeded: 'Default Local Agent'.")
+                # NOTE: No default MCP API key is seeded. The operator must create
+                # one via the dashboard (/api/mcp/keys) or MCP tooling. This avoids
+                # a hardcoded read_write key being present in every fresh install.
 
                 conn.commit()
                 logger.info(f"Initialized SQLite database at {self.db_path} (WAL Mode enabled).")
