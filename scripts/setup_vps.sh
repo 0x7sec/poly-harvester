@@ -129,7 +129,43 @@ systemctl daemon-reload
 systemctl enable poly-harvester.service
 systemctl restart poly-harvester.service
 
-# 5. Configure Firewall (UFW)
+# 5. Configure Nginx Reverse Proxy for poly.0x7sec.com
+echo "🌐 Configuring Nginx Reverse Proxy for poly.0x7sec.com..."
+cat << 'EOF' > /etc/nginx/sites-available/poly-harvester
+server {
+    listen 80;
+    server_name poly.0x7sec.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8443;
+        proxy_http_version 1.1;
+
+        # WebSocket Streaming Support (Crucial for 20Hz Real-Time Price/Telemetry)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Disable buffering for zero-latency tick delivery
+        proxy_buffering off;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+}
+EOF
+
+ln -sf /etc/nginx/sites-available/poly-harvester /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+
+# 6. Attempt automated Let's Encrypt SSL certificate
+echo "🔒 Checking Let's Encrypt SSL for poly.0x7sec.com..."
+certbot --nginx -d poly.0x7sec.com --non-interactive --agree-tos --register-unsafely-without-email --redirect || echo "⚠️ Certbot notice: If DNS is still propagating, SSL will activate once Cloudflare DNS resolves."
+
+# 7. Configure Firewall (UFW)
 echo "🛡️ Configuring Firewall..."
 ufw allow 22/tcp
 ufw allow 80/tcp
@@ -139,6 +175,7 @@ ufw --force enable
 
 echo "=============================================================================="
 echo "🎉 Poly-Harvester Debian VPS Setup Complete!"
+echo "   Domain:         https://poly.0x7sec.com"
 echo "   Service Status: sudo systemctl status poly-harvester"
 echo "   Live Logs:      sudo journalctl -u poly-harvester -f"
 echo "   Dashboard:      http://$(curl -s ifconfig.me):8443"
