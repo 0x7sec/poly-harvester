@@ -290,12 +290,23 @@ class PolymarketQuantEngine:
         if hasattr(self, "dashboard") and self.dashboard:
             self.dashboard.record_price_tick(feed.current_price, velocity)
 
-        # Calculate Bayesian fair implied probability
+        # Calculate Bayesian fair implied probability (multi-factor)
         up_mid = (self.polymarket_feed.up_best_bid + self.polymarket_feed.up_best_ask) / 2.0
+        # Feed the spot tick into the model's rolling volatility window.
+        self.fair_value_model.observe(feed.current_price)
+        # Time-to-expiry for the active contract (for time-decay weighting).
+        secs_to_expiry = None
+        if getattr(self.polymarket_feed, "market_end_time", None):
+            secs_to_expiry = max(0.0, self.polymarket_feed.market_end_time - time.time())
         self.fair_prob = self.fair_value_model.calculate_fair_probabilities(
             spot_velocity=velocity,
             spot_percent_return=pct_return,
             polymarket_up_mid=up_mid,
+            up_bid_depth=self.polymarket_feed.get_bid_depth_ahead("UP", 0.0),
+            down_bid_depth=self.polymarket_feed.get_bid_depth_ahead("DOWN", 0.0),
+            up_ask_depth=self.polymarket_feed.get_ask_depth_ahead("UP", 0.0),
+            down_ask_depth=self.polymarket_feed.get_ask_depth_ahead("DOWN", 0.0),
+            seconds_to_expiry=secs_to_expiry,
         )
 
         # Check for fills on tick arrivals if trading is active
@@ -417,9 +428,20 @@ class PolymarketQuantEngine:
                     allow_up = False
                 elif self.inventory.down.shares > self.inventory.up.shares:
                     allow_down = False
-                elif self.inventory.net_imbalance == 0:
+                elif abs(self.inventory.net_imbalance) < 1e-9:
                     allow_up = False
                     allow_down = False
+
+        # Explicit directional-residual risk rule: if the fair-value model no
+        # longer favors our exposed leg (or we're at the imbalance cap), stop
+        # buying the exposed leg and lean toward buying the opposite leg to
+        # hedge the residual back into a complete set.
+        leg_risk = self.inventory.leg_risk_signal(fair_q_up=self.fair_prob.get("q_up", 0.50))
+        if leg_risk["action"] == "HEDGE" and leg_risk["exposed_leg"]:
+            if leg_risk["exposed_leg"] == "UP":
+                allow_up = False
+            else:
+                allow_down = False
 
         # Route orders to active engine (Live CLOB or Paper Simulator)
         if not self.config.dry_run:

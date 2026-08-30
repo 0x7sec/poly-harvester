@@ -106,6 +106,37 @@ class PolyHarvesterMCPServer:
                     },
                 },
             },
+            {
+                "name": "poly_run_backtest",
+                "description": (
+                    "Runs a historical backtest of the complete-set arbitrage + directional-residual "
+                    "strategy against BTC price ticks. Measures whether the edge is real: complete-set "
+                    "arb profit, directional residual P&L/win-rate, and model calibration (Brier score, "
+                    "accuracy). Provide a CSV path (timestamp,price) or use a synthetic random walk."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "data_path": {"type": "string", "description": "Path to a CSV with timestamp,price columns. Omit for synthetic data."},
+                        "contract_window": {"type": "integer", "description": "Contract window in seconds (default 300 = 5m)."},
+                        "order_size_shares": {"type": "number", "description": "Shares per clip (default 25)."},
+                        "max_combined_cost": {"type": "number", "description": "Cost ceiling for arb (default 0.96)."},
+                        "min_edge": {"type": "number", "description": "Min edge per set to take arb (default 0.01)."},
+                        "fee_bps": {"type": "number", "description": "Trading fee in basis points (default 0)."},
+                        "synthetic_duration": {"type": "integer", "description": "Seconds of synthetic data if no CSV (default 3600)."},
+                        "seed": {"type": "integer", "description": "RNG seed for synthetic data (default 42)."},
+                    },
+                },
+            },
+            {
+                "name": "poly_get_leg_risk",
+                "description": (
+                    "Returns the current directional-residual risk decision: which leg is exposed, "
+                    "the exposure size, and whether the engine should HOLD the residual or HEDGE it "
+                    "back into a complete set, based on the fair-value model."
+                ),
+                "inputSchema": {"type": "object", "properties": {}},
+            },
         ]
 
     async def handle_tool_call(self, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -246,6 +277,44 @@ class PolyHarvesterMCPServer:
                 self.engine.db.set_state("runtime_config", updated_dict)
 
             return {"success": True, "updated_parameters": updated}
+
+        elif name == "poly_run_backtest":
+            from strategy_backtest import run_backtest
+
+            data_path = arguments.get("data_path")
+            contract_window = int(arguments.get("contract_window", 300))
+            order_size_shares = float(arguments.get("order_size_shares", 25.0))
+            max_combined_cost = float(arguments.get("max_combined_cost", 0.96))
+            min_edge = float(arguments.get("min_edge", 0.01))
+            fee_bps = float(arguments.get("fee_bps", 0.0))
+            synthetic_duration = int(arguments.get("synthetic_duration", 3600))
+            seed = arguments.get("seed", 42)
+
+            try:
+                summary = run_backtest(
+                    data_path=data_path,
+                    contract_window=contract_window,
+                    order_size_shares=order_size_shares,
+                    max_combined_cost=max_combined_cost,
+                    min_edge=min_edge,
+                    fee_bps=fee_bps,
+                    synthetic_duration=synthetic_duration,
+                    seed=seed,
+                )
+                return {"status": "SUCCESS", "backtest": summary}
+            except Exception as e:
+                return {"status": "ERROR", "error": str(e)}
+
+        elif name == "poly_get_leg_risk":
+            if hasattr(self.engine, "inventory") and self.engine.inventory:
+                fair_q_up = getattr(self.engine, "fair_prob", {}).get("q_up", 0.50)
+                signal = self.engine.inventory.leg_risk_signal(fair_q_up=fair_q_up)
+                return {
+                    "status": "SUCCESS",
+                    "fair_q_up": fair_q_up,
+                    "leg_risk": signal,
+                }
+            return {"status": "ERROR", "error": "Inventory manager not available."}
 
         return {"error": f"Unknown tool: {name}"}
 

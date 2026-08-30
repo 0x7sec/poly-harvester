@@ -229,14 +229,20 @@ class InventoryManager:
         if sets <= 0:
             return None
 
-        combined_cost_per_set = self.up.avg_cost + self.down.avg_cost
+        # Capture per-leg avg cost BEFORE reducing shares (reduce_shares resets
+        # avg_cost to 0.0 when a position is fully consumed, which previously
+        # caused the ledger to log up_avg_cost/down_avg_cost as 0.0).
+        up_avg_cost_before = self.up.avg_cost
+        down_avg_cost_before = self.down.avg_cost
+        combined_cost_per_set = up_avg_cost_before + down_avg_cost_before
         net_profit_per_set = 1.00 - combined_cost_per_set
         total_profit_locked = sets * net_profit_per_set
         self.realized_arbitrage_pnl += total_profit_locked
         self.total_complete_sets_merged += sets
 
         logger.info(
-            f"[COMPLETE SET MERGED] {sets:.1f} sets merged @ avg cost ${combined_cost_per_set:.3f} | "
+            f"[COMPLETE SET MERGED] {sets:.1f} sets merged @ avg cost ${combined_cost_per_set:.3f} "
+            f"(UP ${up_avg_cost_before:.3f} + DOWN ${down_avg_cost_before:.3f}) | "
             f"Locked Profit: +${total_profit_locked:.2f} | "
             f"Cumulative PnL: +${self.realized_arbitrage_pnl:.2f}"
         )
@@ -245,14 +251,14 @@ class InventoryManager:
         self.up.reduce_shares(sets)
         self.down.reduce_shares(sets)
 
-        # Persist positions and ledger event
+        # Persist positions and ledger event (using the pre-merge avg costs)
         if self.db:
             self.db.save_position("UP", self.up.shares, self.up.avg_cost, self.up.total_spent)
             self.db.save_position("DOWN", self.down.shares, self.down.avg_cost, self.down.total_spent)
             self.db.log_complete_set(
                 sets_merged=sets,
-                up_avg_cost=self.up.avg_cost,
-                down_avg_cost=self.down.avg_cost,
+                up_avg_cost=up_avg_cost_before,
+                down_avg_cost=down_avg_cost_before,
                 combined_cost=combined_cost_per_set,
                 profit_locked=total_profit_locked,
                 cumulative_pnl=self.realized_arbitrage_pnl,
@@ -298,6 +304,60 @@ class InventoryManager:
         imbalance = self.net_imbalance
         skew = self.gamma * imbalance
         return max(-0.05, min(0.05, skew))
+
+    def leg_risk_signal(self, fair_q_up: float = 0.50) -> dict:
+        """
+        Explicit directional-residual risk rule.
+
+        The strategy deliberately keeps a small directional residual after
+        merging complete sets. This method decides, for the current unhedged
+        position, whether the bot should actively HEDGE (stop buying the
+        exposed leg and lean quotes to buy the opposite leg) or HOLD (keep the
+        residual because the fair-value model still favors it).
+
+        Returns a dict with:
+          exposed_leg: "UP" | "DOWN" | None
+          exposure_shares: absolute unhedged share count
+          action: "HOLD" | "HEDGE"
+          reason: human-readable explanation
+        """
+        imbalance = self.net_imbalance
+        if imbalance == 0:
+            return {"exposed_leg": None, "exposure_shares": 0.0, "action": "HOLD", "reason": "No directional residual."}
+
+        exposed_leg = "UP" if imbalance > 0 else "DOWN"
+        exposure = abs(imbalance)
+
+        # If we're long UP, we want the fair model to still favor UP (q_up > 0.5)
+        # to justify holding. If the model now favors DOWN, hedge.
+        if exposed_leg == "UP":
+            model_favors_exposed = fair_q_up >= 0.50
+        else:
+            model_favors_exposed = fair_q_up <= 0.50
+
+        # Hard cap: beyond max_imbalance we must hedge regardless of the model.
+        if exposure >= self.max_imbalance:
+            action = "HEDGE"
+            reason = f"Exposure {exposure:.0f} sh >= cap {self.max_imbalance:.0f}; hedging."
+        elif not model_favors_exposed:
+            action = "HEDGE"
+            reason = (
+                f"Fair model no longer favors {exposed_leg} "
+                f"(q_up={fair_q_up:.2f}); hedging residual."
+            )
+        else:
+            action = "HOLD"
+            reason = (
+                f"Holding {exposed_leg} residual ({exposure:.0f} sh); "
+                f"fair model favors it (q_up={fair_q_up:.2f})."
+            )
+
+        return {
+            "exposed_leg": exposed_leg,
+            "exposure_shares": round(exposure, 1),
+            "action": action,
+            "reason": reason,
+        }
 
     def get_summary(self) -> dict:
         """Returns snapshot of current inventory and PnL."""
