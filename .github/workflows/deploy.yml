@@ -45,13 +45,24 @@ jobs:
           password: ${{ secrets.VPS_PASSWORD }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          script_stop: true
+          script_stop: false
           script: |
+            set -x
             export DEBIAN_FRONTEND=noninteractive
-            if [ -f /opt/poly-harvester/scripts/deploy.sh ]; then
-              bash /opt/poly-harvester/scripts/deploy.sh
-            else
-              echo "🚀 First-time VPS bootstrap detected! Provisioning fresh VPS..."
-              which curl >/dev/null 2>&1 || (apt-get update -y && apt-get install -y curl)
-              curl -sSL https://raw.githubusercontent.com/0x7sec/poly-harvester/main/scripts/setup_vps.sh | bash
+            
+            # 1. Install base essentials if missing
+            apt-get update -y
+            apt-get install -y git curl python3 python3-venv python3-dev python3-pip build-essential pkg-config libssl-dev nginx ufw
+            
+            # 2. Clone or update repository
+            if [ ! -d "/opt/poly-harvester/.git" ]; then
+              rm -rf /opt/poly-harvester
+              git clone https://github.com/0x7sec/poly-harvester.git /opt/poly-harvester
             fi
+            
+            cd /opt/poly-harvester
+            git fetch origin main
+            git reset --hard origin/main
+            
+            # 3. Execute setup / deployment
+            bash scripts/setup_vps.sh

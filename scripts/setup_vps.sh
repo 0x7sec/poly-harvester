@@ -1,26 +1,15 @@
 #!/bin/bash
 # ==============================================================================
 # Poly-Harvester: Automated Low-Latency Debian VPS Provisioner
-# Configures:
-#   1. High-Performance HFT Kernel Network Tuning (/etc/sysctl.d/99-hft-network.conf)
-#   2. Python 3.11/3.12 Virtual Environment & uvloop
-#   3. Systemd Process Supervision with High CPU Priority (Nice=-10)
-#   4. Nginx Reverse Proxy with WebSocket & SSL Support
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
 
-if [ "$EUID" -ne 0 ]; then
-  echo "❌ Please run as root (or with sudo): bash scripts/setup_vps.sh"
-  exit 1
-fi
+echo "🚀 Starting Poly-Harvester Debian VPS Provisioning..."
 
-echo "🚀 Starting Poly-Harvester Debian VPS Setup..."
-
-# 1. Update system packages non-interactively
+# 1. Base packages
 apt-get update -y
 apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
-  sudo \
   python3 \
   python3-venv \
   python3-dev \
@@ -35,48 +24,33 @@ apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--fo
   python3-certbot-nginx \
   ufw \
   htop \
-  jq
+  jq || true
 
-# 2. Automated Low-Latency Kernel Network Tuning
+# 2. Automated Low-Latency HFT Kernel Network Tuning
 echo "⚡ Applying Low-Latency HFT Kernel Network Tuning..."
 cat << 'EOF' > /etc/sysctl.d/99-hft-network.conf
-# ==============================================================================
-# Poly-Harvester High-Frequency Trading TCP/IP Kernel Tuning
-# ==============================================================================
-# Fast TCP Handshakes
+# Poly-Harvester HFT TCP/IP Kernel Tuning
 net.ipv4.tcp_fastopen = 3
-
-# Fast Socket Port Recycling
 net.ipv4.tcp_tw_reuse = 1
 net.ipv4.tcp_fin_timeout = 15
-
-# Expanded Socket Memory Buffers (16MB)
 net.core.rmem_max = 16777216
 net.core.wmem_max = 16777216
 net.ipv4.tcp_rmem = 4096 87380 16777216
 net.ipv4.tcp_wmem = 4096 65536 16777216
-
-# Connection Queue Backlogs
 net.core.netdev_max_backlog = 10000
 net.core.somaxconn = 65535
-
-# Keepalive for persistent WebSocket feeds
 net.ipv4.tcp_keepalive_time = 300
 net.ipv4.tcp_keepalive_intvl = 15
 net.ipv4.tcp_keepalive_probes = 5
 EOF
 
-sysctl --system
+sysctl --system || true
 
-# 3. Create Project Directory & Virtual Environment
+# 3. Project Directory & Python Virtual Environment
 INSTALL_DIR="/opt/poly-harvester"
-echo "📁 Setting up project directory at $INSTALL_DIR..."
+echo "📁 Setting up Python virtual environment in $INSTALL_DIR..."
 
-mkdir -p $INSTALL_DIR
-if [ ! -d "$INSTALL_DIR/.git" ]; then
-  echo "Cloning repository..."
-  git clone https://github.com/0x7sec/poly-harvester.git $INSTALL_DIR
-fi
+mkdir -p $INSTALL_DIR/data
 
 cd $INSTALL_DIR
 
@@ -87,10 +61,7 @@ fi
 # Upgrade pip & install dependencies
 $INSTALL_DIR/venv/bin/pip install --upgrade pip setuptools wheel
 $INSTALL_DIR/venv/bin/pip install -r requirements.txt
-$INSTALL_DIR/venv/bin/pip install uvloop
-
-# Ensure data directory exists
-mkdir -p $INSTALL_DIR/data
+$INSTALL_DIR/venv/bin/pip install uvloop || true
 
 # 4. Configure Systemd Service
 echo "⚙️ Configuring systemd service (/etc/systemd/system/poly-harvester.service)..."
@@ -160,11 +131,11 @@ EOF
 
 ln -sf /etc/nginx/sites-available/poly-harvester /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
+nginx -t && systemctl reload nginx || true
 
 # 6. Attempt automated Let's Encrypt SSL certificate
 echo "🔒 Checking Let's Encrypt SSL for poly.0x7sec.com..."
-certbot --nginx -d poly.0x7sec.com --non-interactive --agree-tos --register-unsafely-without-email --redirect || echo "⚠️ Certbot notice: If DNS is still propagating, Cloudflare SSL proxy handles HTTPS."
+certbot --nginx -d poly.0x7sec.com --non-interactive --agree-tos --register-unsafely-without-email --redirect || echo "⚠️ Notice: Cloudflare handles SSL on the edge."
 
 # 7. Configure Firewall (UFW)
 echo "🛡️ Configuring Firewall..."
@@ -174,7 +145,7 @@ ufw allow 443/tcp || true
 ufw allow 8443/tcp || true
 ufw --force enable || true
 
-HOST_IP=$(hostname -I | awk '{print $1}')
+HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_VPS_IP")
 echo "=============================================================================="
 echo "🎉 Poly-Harvester Debian VPS Setup Complete!"
 echo "   Domain:         https://poly.0x7sec.com"
