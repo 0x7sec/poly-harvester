@@ -537,15 +537,15 @@ function updateDashboard(data) {
 
     // 6. Ping / Latency Metrics to Binance and Polymarket
     if (data.latency) {
-        const bnLat = data.latency.binance_ms || 22;
-        const polyLat = data.latency.polymarket_ms || 38;
+        const bnLat = data.latency.binance_ms !== undefined ? Number(data.latency.binance_ms).toFixed(1) : "--";
+        const polyLat = data.latency.polymarket_ms !== undefined ? Number(data.latency.polymarket_ms).toFixed(1) : "--";
         if (binancePingVal) {
             binancePingVal.textContent = `${bnLat} ms`;
-            binancePingVal.className = `ping-val font-bold ${bnLat < 60 ? 'text-green' : bnLat < 150 ? 'text-yellow' : 'text-red'}`;
+            binancePingVal.className = `ping-val font-bold ${Number(bnLat) < 60 ? 'text-green' : Number(bnLat) < 150 ? 'text-yellow' : 'text-red'}`;
         }
         if (polyPingVal) {
             polyPingVal.textContent = `${polyLat} ms`;
-            polyPingVal.className = `ping-val font-bold ${polyLat < 80 ? 'text-green' : polyLat < 200 ? 'text-purple' : 'text-red'}`;
+            polyPingVal.className = `ping-val font-bold ${Number(polyLat) < 80 ? 'text-green' : Number(polyLat) < 200 ? 'text-purple' : 'text-red'}`;
         }
     }
 

@@ -408,12 +408,12 @@ class PolymarketFeed:
         """Measures WebSocket roundtrip ping latency and triggers automatic contract rollover upon expiry."""
         while self._running and not ws.closed:
             try:
-                t0 = time.time()
+                t0 = time.perf_counter()
                 pong_waiter = await ws.ping()
-                await asyncio.wait_for(pong_waiter, timeout=5.0)
-                rtt = int((time.time() - t0) * 1000)
+                await asyncio.wait_for(pong_waiter, timeout=4.0)
+                rtt = (time.perf_counter() - t0) * 1000.0
                 if rtt > 0:
-                    self.latency_ms = rtt
+                    self.latency_ms = round(rtt, 1)
 
                 # Check contract expiry auto-rollover for rolling 5M/15M slots
                 if self.auto_discover and self.market_end_time and time.time() >= self.market_end_time:
@@ -422,7 +422,7 @@ class PolymarketFeed:
                     break
             except Exception:
                 pass
-            await asyncio.sleep(3.0)
+            await asyncio.sleep(1.0)
 
     async def _handle_ws_message(self, raw_msg: str):
         """Processes Polymarket orderbook updates."""

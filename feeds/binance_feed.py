@@ -147,18 +147,18 @@ class BinanceFeed:
                 await asyncio.sleep(1.5)
 
     async def _periodic_ping(self, ws):
-        """Measures WebSocket roundtrip ping latency."""
+        """Measures WebSocket roundtrip ping latency with high-resolution timer."""
         while self._running and not ws.closed:
             try:
-                t0 = time.time()
+                t0 = time.perf_counter()
                 pong_waiter = await ws.ping()
-                await asyncio.wait_for(pong_waiter, timeout=4.0)
-                rtt = int((time.time() - t0) * 1000)
+                await asyncio.wait_for(pong_waiter, timeout=3.0)
+                rtt = (time.perf_counter() - t0) * 1000.0
                 if rtt > 0:
-                    self.latency_ms = rtt
+                    self.latency_ms = round(rtt, 1)
             except Exception:
                 pass
-            await asyncio.sleep(2.5)
+            await asyncio.sleep(1.0)
 
     async def _handle_message(self, raw_msg: str, is_coinbase: bool = False):
         """Processes incoming Binance or Coinbase ticker frames."""
