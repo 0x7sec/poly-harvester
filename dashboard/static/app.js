@@ -1880,7 +1880,36 @@ if (startSessionForm) {
             if (res.ok && data.status === "SUCCESS") {
                 hideStartSessionModal();
                 selectedSessionId = "ACTIVE";
+                
+                // Immediately update top-nav controls & session status indicator
+                const sessSelect = document.getElementById("sessionHistorySelect");
+                const statusDot = document.getElementById("sessionStatusDot");
+                const statusText = document.getElementById("sessionStatusText");
+                const btnOpenStart = document.getElementById("btnOpenStartSession");
+                const btnPauseResume = document.getElementById("btnPauseResumeSession");
+                const btnStopSess = document.getElementById("btnStopCurrentSession");
+                const timerVal = document.getElementById("sessionTimerVal");
+                const pnlStatus = document.getElementById("pnlStatus");
+
+                if (statusDot) statusDot.className = "session-dot dot-active";
+                if (statusText) {
+                    statusText.textContent = `LIVE (${data.session.session_id})`;
+                    statusText.style.color = "var(--accent-green)";
+                }
+                if (btnOpenStart) btnOpenStart.classList.add("hidden");
+                if (btnPauseResume) btnPauseResume.classList.remove("hidden");
+                if (btnStopSess) btnStopSess.classList.remove("hidden");
+                if (timerVal) timerVal.textContent = "0m 00s";
+                if (pnlStatus) {
+                    pnlStatus.textContent = "ACTIVE QUOTING";
+                    pnlStatus.className = "metric-badge font-mono badge-active";
+                }
+
                 showToast(`Session ${data.session.session_id} launched in ${mode} mode!`, "success");
+                
+                // Refresh list and reload active session logs
+                await loadSessionList();
+                if (sessSelect) sessSelect.value = "ACTIVE";
                 loadHistoricalLogs();
             } else {
                 showToast(data.error || "Failed to start trading session.", "error");
