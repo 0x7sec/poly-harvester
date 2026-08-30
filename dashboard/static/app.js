@@ -556,7 +556,7 @@ function updateDashboard(data) {
         // Geoblock Pill & Card Badge
         const geo = sdk.geoblock || {};
         const isBlocked = geo.blocked === true;
-        const countryCode = (geo.country && geo.country !== "Unknown") ? geo.country : "PK";
+        const countryCode = (geo.country && geo.country !== "Unknown") ? geo.country : (isBlocked ? "US" : "GLOBAL");
         const geoVal = document.getElementById("polyGeoVal");
         const geoPill = document.getElementById("polyGeoPill");
         const geoBadge = document.getElementById("polyGeoBadge");
