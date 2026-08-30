@@ -1183,48 +1183,53 @@ class DatabaseManager:
                 conn.commit()
         return self.get_session_by_id(target_sess)
 
-    def get_session_trades_count(self, session_id: Optional[str] = None) -> int:
-        """Returns total trade count for a session (or aggregate if None/'ALL')."""
+    def get_session_trades_count(self, session_id: Optional[str] = None, market_filter: Optional[str] = None) -> int:
+        """Returns total trade count for a session (or aggregate if None/'ALL'), optionally filtered by market."""
         with self._lock:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                conditions = []
+                params = []
                 if session_id and session_id.upper() != "ALL":
-                    cursor.execute("SELECT COUNT(*) FROM trades WHERE session_id = ?", (session_id,))
-                else:
-                    cursor.execute("SELECT COUNT(*) FROM trades")
+                    conditions.append("session_id = ?")
+                    params.append(session_id)
+                if market_filter and market_filter.upper() != "ALL":
+                    conditions.append("(market_title = ? OR market_slug = ?)")
+                    params.extend([market_filter, market_filter])
+
+                where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+                cursor.execute(f"SELECT COUNT(*) FROM trades {where_clause}", tuple(params))
                 row = cursor.fetchone()
                 return int(row[0]) if row else 0
 
-    def get_session_trades(self, session_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[dict]:
-        """Retrieves trades filtered by session_id (or all if session_id is None/'ALL')."""
+    def get_session_trades(self, session_id: Optional[str] = None, limit: int = 50, offset: int = 0, market_filter: Optional[str] = None) -> List[dict]:
+        """Retrieves trades filtered by session_id (or all if session_id is None/'ALL'), optionally filtered by market."""
         with self._lock:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
+                conditions = []
+                params = []
                 if session_id and session_id.upper() != "ALL":
-                    cursor.execute(
-                        """
-                        SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
-                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id,
-                               market_title, market_slug
-                        FROM trades
-                        WHERE session_id = ?
-                        ORDER BY id DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        (session_id, limit, offset),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
-                               fee_usd, execution_type, up_shares_after, down_shares_after, session_id,
-                               market_title, market_slug
-                        FROM trades
-                        ORDER BY id DESC
-                        LIMIT ? OFFSET ?
-                        """,
-                        (limit, offset),
-                    )
+                    conditions.append("session_id = ?")
+                    params.append(session_id)
+                if market_filter and market_filter.upper() != "ALL":
+                    conditions.append("(market_title = ? OR market_slug = ?)")
+                    params.extend([market_filter, market_filter])
+
+                where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+                params.extend([limit, offset])
+                cursor.execute(
+                    f"""
+                    SELECT id, timestamp, time_iso, order_id, side, price, shares, cost_usd,
+                           fee_usd, execution_type, up_shares_after, down_shares_after, session_id,
+                           market_title, market_slug
+                    FROM trades
+                    {where_clause}
+                    ORDER BY id DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    tuple(params),
+                )
                 rows = cursor.fetchall()
                 return [dict(r) for r in rows]
 

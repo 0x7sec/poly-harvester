@@ -449,15 +449,18 @@ class DashboardServer:
         limit = max(1, min(1000, int(request.query.get("limit", 50))))
         offset = max(0, int(request.query.get("offset", 0)))
         session_id = request.query.get("session_id")
+        market_filter = request.query.get("market")
         if (session_id is None or session_id.upper() in ("ACTIVE", "CURRENT")) and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
             session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
-            trades = self.engine.db.get_session_trades(session_id=session_id, limit=limit, offset=offset)
-            total_count = self.engine.db.get_session_trades_count(session_id=session_id)
+            trades = self.engine.db.get_session_trades(session_id=session_id, limit=limit, offset=offset, market_filter=market_filter)
+            total_count = self.engine.db.get_session_trades_count(session_id=session_id, market_filter=market_filter)
         else:
             trades = self.engine.paper_engine.fill_history[-limit:]
-            total_count = len(self.engine.paper_engine.fill_history)
+            if market_filter and market_filter.upper() != "ALL":
+                trades = [t for t in trades if t.get("market_title") == market_filter or t.get("market_slug") == market_filter]
+            total_count = len(trades)
 
         return web.json_response({
             "trades": trades,

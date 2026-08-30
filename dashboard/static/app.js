@@ -663,25 +663,22 @@ function updateDashboard(data) {
             window.currentSessionStatus = sess.status;
 
             if (sess.duration_seconds !== undefined) {
-                clientTimerBaseDuration = Math.max(0, Number(sess.duration_seconds));
-                clientTimerBaseLocalTime = Date.now();
-            }
-
-            if (timerVal) {
-                if (isTrading || isPaused) {
-                    const durSec = clientTimerBaseDuration;
-                    timerVal.textContent = isTrading ? formatDuration(durSec) : `PAUSED (${formatDuration(durSec)})`;
-                    if (timerPill && sess.start_time) {
-                        const startTimeStr = new Date(sess.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                        timerPill.title = `Session started ${formatRelativeTimeAgo(sess.start_time)} (at ${startTimeStr})`;
-                    }
-                } else {
-                    timerVal.textContent = "STANDBY";
-                    if (timerPill) {
-                        timerPill.title = "No active trading session running. Click Start Trading to begin.";
-                    }
+                const newDur = Math.max(0, Number(sess.duration_seconds));
+                if (Math.abs(newDur - clientTimerBaseDuration) >= 2 || clientTimerBaseLocalTime === 0) {
+                    clientTimerBaseDuration = newDur;
+                    clientTimerBaseLocalTime = Date.now();
                 }
             }
+
+            if (timerPill) {
+                if ((isTrading || isPaused) && sess.start_time) {
+                    const startTimeStr = new Date(sess.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    timerPill.title = `Session started ${formatRelativeTimeAgo(sess.start_time)} (at ${startTimeStr})`;
+                } else {
+                    timerPill.title = "No active trading session running. Click Start Trading to begin.";
+                }
+            }
+            renderSessionTimer();
 
             if (statusDot && statusText) {
                 if (isTrading) {
@@ -1098,6 +1095,20 @@ function formatRelativeTimeAgo(timestamp) {
     return `${Math.floor(elapsed / 86400)}d ago`;
 }
 
+function renderSessionTimer() {
+    const timerVal = document.getElementById("sessionTimerVal");
+    if (!timerVal) return;
+    if (window.isTradingActive && clientTimerBaseLocalTime > 0) {
+        const localElapsedDelta = Math.floor((Date.now() - clientTimerBaseLocalTime) / 1000);
+        const totalDuration = clientTimerBaseDuration + localElapsedDelta;
+        timerVal.textContent = formatDuration(totalDuration);
+    } else if (window.currentSessionStatus === "PAUSED") {
+        timerVal.textContent = `PAUSED (${formatDuration(clientTimerBaseDuration)})`;
+    } else {
+        timerVal.textContent = "STANDBY";
+    }
+}
+
 async function loadSessionList() {
     const select = document.getElementById("sessionHistorySelect");
     if (!select) return;
@@ -1142,21 +1153,23 @@ async function loadTrades() {
     try {
         const limitEl = document.getElementById("tradeLimitSelect");
         const limit = limitEl ? limitEl.value : 50;
-        const url = `/api/trades?limit=${limit}&session_id=${encodeURIComponent(selectedSessionId)}`;
+        const filterEl = document.getElementById("tradeMarketFilter");
+        const filterVal = filterEl ? filterEl.value : "ALL";
+
+        let marketParam = "";
+        if (filterVal === "ACTIVE" && (currentMarketSlug || currentMarketTitle)) {
+            marketParam = `&market=${encodeURIComponent(currentMarketSlug || currentMarketTitle)}`;
+        }
+
+        const url = `/api/trades?limit=${limit}&session_id=${encodeURIComponent(selectedSessionId)}${marketParam}`;
         const res = await fetch(url, { headers: { "X-Auth-Token": authToken } });
         if (res.ok) {
             const data = await res.json();
-            let trades = data.trades || [];
+            const trades = data.trades || [];
             const totalCount = data.total_count !== undefined ? data.total_count : trades.length;
-            
-            const filterEl = document.getElementById("tradeMarketFilter");
-            const filterVal = filterEl ? filterEl.value : "ALL";
-            if (filterVal === "ACTIVE" && currentMarketTitle) {
-                trades = trades.filter(t => t.market_title === currentMarketTitle || (t.market_slug && t.market_slug === currentMarketSlug));
-            }
 
             const countText = (filterVal === "ACTIVE")
-                ? `${trades.length} Active Fills (${data.session_id || selectedSessionId})`
+                ? `${totalCount} Active Fills (${data.session_id || selectedSessionId})`
                 : (trades.length < totalCount)
                     ? `Showing ${trades.length} of ${totalCount} Total Fills (${data.session_id || selectedSessionId})`
                     : `${totalCount} Total Fills (${data.session_id || selectedSessionId})`;
@@ -1674,12 +1687,14 @@ if (polyConfigForm) {
         const ak = inputPolyApiKey ? inputPolyApiKey.value.trim() : "";
 
         if (isLiveChosen) {
-            const confirmed = await showCustomConfirm(
-                "Enable Live CLOB Trading?",
-                "WARNING: You are switching to LIVE CLOB EXECUTION. Real limit orders will be placed on Polymarket using real USDC collateral within strict $300 bankroll limits. Proceed?",
-                "Enable Live Trading",
-                "Keep Paper Mode"
-            );
+            const confirmed = await customConfirm({
+                title: "Enable Live CLOB Trading?",
+                message: "WARNING: You are switching to LIVE CLOB EXECUTION. Real limit orders will be placed on Polymarket using real USDC collateral within strict $300 bankroll limits. Proceed?",
+                confirmText: "Enable Live Trading",
+                cancelText: "Keep Paper Mode",
+                type: "warning",
+                icon: "alert-triangle"
+            });
             if (!confirmed) return;
         }
 
@@ -2159,11 +2174,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Smooth 1-second live session timer ticker anchored to server duration
     setInterval(() => {
-        const timerVal = document.getElementById("sessionTimerVal");
-        if (timerVal && window.isTradingActive && clientTimerBaseLocalTime > 0) {
-            const localElapsedDelta = Math.floor((Date.now() - clientTimerBaseLocalTime) / 1000);
-            const totalDuration = clientTimerBaseDuration + localElapsedDelta;
-            timerVal.textContent = formatDuration(totalDuration);
-        }
+        renderSessionTimer();
     }, 1000);
 });
