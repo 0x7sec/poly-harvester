@@ -1937,6 +1937,274 @@ if (startSessionForm) {
     });
 }
 
+// ==================== Cloudflare Turnstile & Login Management ====================
+
+const sideNavTurnstile = document.getElementById("sideNavTurnstile");
+const turnstileModal = document.getElementById("turnstileModal");
+const btnCloseTurnstileModal = document.getElementById("btnCloseTurnstileModal");
+const btnCancelTurnstileModal = document.getElementById("btnCancelTurnstileModal");
+const turnstileForm = document.getElementById("turnstileForm");
+const checkTurnstileEnabled = document.getElementById("checkTurnstileEnabled");
+const turnstileStatusBadge = document.getElementById("turnstileStatusBadge");
+const inputTurnstileSiteKey = document.getElementById("inputTurnstileSiteKey");
+const inputTurnstileSecretKey = document.getElementById("inputTurnstileSecretKey");
+const btnToggleTurnstileSecret = document.getElementById("btnToggleTurnstileSecret");
+
+const loginModal = document.getElementById("loginModal");
+const loginTurnstileContainer = document.getElementById("loginTurnstileContainer");
+const cfTurnstileWidget = document.getElementById("cfTurnstileWidget");
+const btnSubmitLogin = document.getElementById("btnSubmitLogin");
+
+window._turnstileWidgetId = null;
+window._turnstileToken = "";
+let _turnstileScriptLoaded = false;
+
+// 1. Show Turnstile Settings Modal
+async function showTurnstileModal() {
+    if (!turnstileModal) return;
+    try {
+        const res = await fetch("/api/security/turnstile/admin", {
+            headers: { "X-Auth-Token": authToken }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            if (checkTurnstileEnabled) checkTurnstileEnabled.checked = !!data.enabled;
+            if (inputTurnstileSiteKey) inputTurnstileSiteKey.value = data.site_key || "";
+            if (inputTurnstileSecretKey) inputTurnstileSecretKey.value = data.secret_key || "";
+            updateTurnstileBadge(!!data.enabled);
+        }
+    } catch (err) {
+        console.warn("Could not load Turnstile admin settings", err);
+    }
+    turnstileModal.classList.remove("hidden");
+    refreshIcons();
+}
+
+function hideTurnstileModal() {
+    if (turnstileModal) turnstileModal.classList.add("hidden");
+}
+
+function updateTurnstileBadge(enabled) {
+    if (!turnstileStatusBadge) return;
+    if (enabled) {
+        turnstileStatusBadge.textContent = "ENABLED";
+        turnstileStatusBadge.className = "badge badge-cyan font-mono";
+    } else {
+        turnstileStatusBadge.textContent = "DISABLED";
+        turnstileStatusBadge.className = "badge badge-muted font-mono";
+    }
+}
+
+if (sideNavTurnstile) {
+    sideNavTurnstile.addEventListener("click", showTurnstileModal);
+}
+
+if (btnCloseTurnstileModal) {
+    btnCloseTurnstileModal.addEventListener("click", hideTurnstileModal);
+}
+
+if (btnCancelTurnstileModal) {
+    btnCancelTurnstileModal.addEventListener("click", hideTurnstileModal);
+}
+
+if (checkTurnstileEnabled) {
+    checkTurnstileEnabled.addEventListener("change", (e) => {
+        updateTurnstileBadge(e.target.checked);
+    });
+}
+
+if (btnToggleTurnstileSecret && inputTurnstileSecretKey) {
+    btnToggleTurnstileSecret.addEventListener("click", () => {
+        const isPw = inputTurnstileSecretKey.type === "password";
+        inputTurnstileSecretKey.type = isPw ? "text" : "password";
+        btnToggleTurnstileSecret.innerHTML = isPw ? '<i data-lucide="eye-off" class="icon-xs"></i>' : '<i data-lucide="eye" class="icon-xs"></i>';
+        refreshIcons();
+    });
+}
+
+// Save Turnstile Settings
+if (turnstileForm) {
+    turnstileForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const enabled = checkTurnstileEnabled ? checkTurnstileEnabled.checked : false;
+        const siteKey = inputTurnstileSiteKey ? inputTurnstileSiteKey.value.trim() : "";
+        const secretKey = inputTurnstileSecretKey ? inputTurnstileSecretKey.value.trim() : "";
+
+        if (enabled && (!siteKey || !secretKey)) {
+            showToast("Both Site Key and Secret Key are required to enable Turnstile.", "error");
+            return;
+        }
+
+        try {
+            const res = await fetch("/api/security/turnstile", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-Auth-Token": authToken
+                },
+                body: JSON.stringify({
+                    enabled: enabled,
+                    site_key: siteKey,
+                    secret_key: secretKey
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+                hideTurnstileModal();
+                showToast(enabled ? "Cloudflare Turnstile Protection ENABLED!" : "Turnstile Protection Disabled.", enabled ? "success" : "info");
+                // Re-initialize turnstile captcha config for login
+                initTurnstileCaptcha();
+            } else {
+                showToast(data.error || "Failed to update Turnstile settings.", "error");
+            }
+        } catch (err) {
+            showToast("Network error saving Turnstile settings.", "error");
+        }
+    });
+}
+
+// 2. Dynamic Turnstile Script & Widget Loader for Login
+async function initTurnstileCaptcha() {
+    try {
+        const res = await fetch("/api/security/turnstile");
+        const data = await res.json();
+
+        if (data.enabled && data.site_key) {
+            if (loginTurnstileContainer) loginTurnstileContainer.classList.remove("hidden");
+
+            if (!_turnstileScriptLoaded && !window.turnstile) {
+                const script = document.createElement("script");
+                script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+                script.async = true;
+                script.defer = true;
+                script.onload = () => {
+                    _turnstileScriptLoaded = true;
+                    renderTurnstileWidget(data.site_key);
+                };
+                document.head.appendChild(script);
+            } else {
+                renderTurnstileWidget(data.site_key);
+            }
+        } else {
+            if (loginTurnstileContainer) loginTurnstileContainer.classList.add("hidden");
+            window._turnstileToken = "";
+        }
+    } catch (err) {
+        console.warn("Could not check public Turnstile status", err);
+    }
+}
+
+function renderTurnstileWidget(siteKey) {
+    if (!window.turnstile || !cfTurnstileWidget) return;
+    try {
+        if (window._turnstileWidgetId !== null) {
+            turnstile.remove(window._turnstileWidgetId);
+        }
+        window._turnstileWidgetId = turnstile.render("#cfTurnstileWidget", {
+            sitekey: siteKey,
+            theme: "dark",
+            callback: function (token) {
+                window._turnstileToken = token;
+            },
+            "error-callback": function () {
+                window._turnstileToken = "";
+            },
+            "expired-callback": function () {
+                window._turnstileToken = "";
+            }
+        });
+    } catch (err) {
+        console.warn("Turnstile widget render notice:", err);
+    }
+}
+
+// 3. Login Modal Handling
+function showLoginModal() {
+    if (loginModal) {
+        loginModal.classList.remove("hidden");
+        initTurnstileCaptcha();
+        refreshIcons();
+    }
+}
+
+function hideLoginModal() {
+    if (loginModal) loginModal.classList.add("hidden");
+}
+
+if (loginForm) {
+    loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const username = loginUsername ? loginUsername.value.trim() : "";
+        const password = loginPassword ? loginPassword.value : "";
+        if (loginErrorMsg) loginErrorMsg.classList.add("hidden");
+
+        try {
+            const res = await fetch("/api/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username: username,
+                    password: password,
+                    cf_turnstile_response: window._turnstileToken || undefined
+                })
+            });
+
+            const data = await res.json();
+            if (res.ok && data.success) {
+                authToken = data.token;
+                try { localStorage.setItem("poly_token", authToken); } catch (err) {}
+                hideLoginModal();
+                if (currentUserDisplay && data.user) {
+                    currentUserDisplay.textContent = (data.user.username || "ADMIN").toUpperCase();
+                }
+                showToast("Welcome back to Poly-Harvester Terminal!", "success");
+                connectWebSocket();
+                loadHistoricalLogs();
+            } else {
+                if (loginErrorMsg) {
+                    loginErrorMsg.textContent = data.error || "Authentication failed.";
+                    loginErrorMsg.classList.remove("hidden");
+                }
+                if (window.turnstile && window._turnstileWidgetId !== null) {
+                    try { turnstile.reset(window._turnstileWidgetId); } catch (err) {}
+                    window._turnstileToken = "";
+                }
+            }
+        } catch (err) {
+            if (loginErrorMsg) {
+                loginErrorMsg.textContent = "Network error during authentication.";
+                loginErrorMsg.classList.remove("hidden");
+            }
+        }
+    });
+}
+
+if (btnLogout) {
+    btnLogout.addEventListener("click", async () => {
+        try {
+            await fetch("/api/auth/logout", {
+                method: "POST",
+                headers: { "X-Auth-Token": authToken }
+            });
+        } catch (err) {}
+        authToken = "";
+        try { localStorage.removeItem("poly_token"); } catch (err) {}
+        if (ws) ws.close();
+        showToast("Logged out successfully.", "info");
+        showLoginModal();
+    });
+}
+
+function checkExistingAuth() {
+    if (!authToken) {
+        showLoginModal();
+    } else {
+        connectWebSocket();
+        loadHistoricalLogs();
+    }
+}
+
 // Expose functions globally for onclick attributes in dynamically generated rows
 window.toggleMcpKey = toggleMcpKey;
 window.deleteMcpKey = deleteMcpKey;

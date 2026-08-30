@@ -242,6 +242,19 @@ class DatabaseManager:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_trades_session ON trades(session_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_sets_session ON complete_sets(session_id);")
 
+                # 11. Cloudflare Turnstile Settings
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS turnstile_config (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        site_key TEXT DEFAULT '',
+                        secret_key TEXT DEFAULT '',
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+
                 # Seed initial position rows if absent
                 for side in ("UP", "DOWN"):
                     cursor.execute(
@@ -958,6 +971,57 @@ class DatabaseManager:
                         "api_secret": "",
                         "api_passphrase": "",
                         "live_trading_enabled": 0,
+                        "updated_at": 0.0,
+                    }
+                return dict(row)
+
+    def save_turnstile_config(
+        self,
+        enabled: Optional[bool] = None,
+        site_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+    ) -> dict:
+        """Saves or updates Cloudflare Turnstile CAPTCHA settings."""
+        current = self.get_turnstile_config()
+        now = time.time()
+        en = int(enabled) if enabled is not None else int(current.get("enabled", 0))
+        sk = site_key if site_key is not None else current.get("site_key", "")
+        sec = secret_key if secret_key is not None else current.get("secret_key", "")
+
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO turnstile_config (id, enabled, site_key, secret_key, updated_at)
+                    VALUES (1, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        enabled = excluded.enabled,
+                        site_key = excluded.site_key,
+                        secret_key = excluded.secret_key,
+                        updated_at = excluded.updated_at
+                    """,
+                    (en, sk, sec, now),
+                )
+                conn.commit()
+        return self.get_turnstile_config()
+
+    def get_turnstile_config(self) -> dict:
+        """Returns the stored Cloudflare Turnstile configuration."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT enabled, site_key, secret_key, updated_at
+                    FROM turnstile_config WHERE id = 1
+                    """
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return {
+                        "enabled": 0,
+                        "site_key": "",
+                        "secret_key": "",
                         "updated_at": 0.0,
                     }
                 return dict(row)

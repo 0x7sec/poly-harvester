@@ -141,6 +141,30 @@ class TestStorageAndRecovery(unittest.TestCase):
         self.assertEqual(trades[0]["price"], 0.46)
         self.assertEqual(trades[0]["shares"], 20.0)
 
+    def test_turnstile_config_persistence(self):
+        """Tests that Cloudflare Turnstile configuration can be saved, updated, and retrieved."""
+        # Initial default state
+        cfg = self.db.get_turnstile_config()
+        self.assertEqual(cfg["enabled"], 0)
+        self.assertEqual(cfg["site_key"], "")
+        self.assertEqual(cfg["secret_key"], "")
+
+        # Enable Turnstile with keys
+        saved = self.db.save_turnstile_config(
+            enabled=True,
+            site_key="0x4AAAAAA_test_site_key",
+            secret_key="0x4AAAAAA_test_secret_key",
+        )
+        self.assertEqual(saved["enabled"], 1)
+        self.assertEqual(saved["site_key"], "0x4AAAAAA_test_site_key")
+        self.assertEqual(saved["secret_key"], "0x4AAAAAA_test_secret_key")
+
+        # Disable Turnstile while preserving keys
+        updated = self.db.save_turnstile_config(enabled=False)
+        self.assertEqual(updated["enabled"], 0)
+        self.assertEqual(updated["site_key"], "0x4AAAAAA_test_site_key")
+        self.assertEqual(updated["secret_key"], "0x4AAAAAA_test_secret_key")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -139,6 +139,11 @@ class DashboardServer:
         self.app.router.add_get("/api/auth/me", self._handle_me)
         self.app.router.add_post("/api/auth/update_profile", self._handle_update_profile)
 
+        # Cloudflare Turnstile Security Endpoints
+        self.app.router.add_get("/api/security/turnstile", self._handle_turnstile_public)
+        self.app.router.add_get("/api/security/turnstile/admin", self._handle_turnstile_admin)
+        self.app.router.add_post("/api/security/turnstile", self._handle_turnstile_save)
+
         # Telemetry & Storage Endpoints
         self.app.router.add_get("/api/status", self._handle_status)
         self.app.router.add_get("/api/trades", self._handle_trades)
@@ -191,12 +196,106 @@ class DashboardServer:
         index_path = os.path.join(static_dir, "index.html")
         return web.FileResponse(index_path)
 
+    async def _handle_turnstile_public(self, request: web.Request):
+        """Public endpoint returning whether Turnstile is enabled and the public site_key."""
+        cfg = {}
+        if hasattr(self.engine, "db") and self.engine.db:
+            cfg = self.engine.db.get_turnstile_config()
+        enabled = bool(cfg.get("enabled", 0)) and bool(cfg.get("site_key", "").strip())
+        return web.json_response({
+            "enabled": enabled,
+            "site_key": cfg.get("site_key", "").strip() if enabled else "",
+        })
+
+    async def _handle_turnstile_admin(self, request: web.Request):
+        """Authenticated endpoint returning full Turnstile settings."""
+        if not self._verify_auth(request):
+            return web.json_response({"success": False, "error": "Unauthorized"}, status=401)
+        cfg = {}
+        if hasattr(self.engine, "db") and self.engine.db:
+            cfg = self.engine.db.get_turnstile_config()
+        return web.json_response({
+            "success": True,
+            "enabled": bool(cfg.get("enabled", 0)),
+            "site_key": cfg.get("site_key", ""),
+            "secret_key": cfg.get("secret_key", ""),
+            "updated_at": cfg.get("updated_at", 0.0),
+        })
+
+    async def _handle_turnstile_save(self, request: web.Request):
+        """Authenticated endpoint saving Turnstile configuration."""
+        if not self._verify_auth(request):
+            return web.json_response({"success": False, "error": "Unauthorized"}, status=401)
+        try:
+            body = await request.json()
+            enabled = bool(body.get("enabled", False))
+            site_key = str(body.get("site_key", "")).strip()
+            secret_key = str(body.get("secret_key", "")).strip()
+
+            if hasattr(self.engine, "db") and self.engine.db:
+                saved = self.engine.db.save_turnstile_config(
+                    enabled=enabled,
+                    site_key=site_key,
+                    secret_key=secret_key,
+                )
+                logger.info(f"Cloudflare Turnstile settings updated: enabled={enabled}, site_key={site_key[:8]}...")
+                return web.json_response({
+                    "success": True,
+                    "message": "Cloudflare Turnstile settings updated successfully.",
+                    "config": {
+                        "enabled": bool(saved.get("enabled", 0)),
+                        "site_key": saved.get("site_key", ""),
+                        "updated_at": saved.get("updated_at", 0.0),
+                    }
+                })
+            return web.json_response({"success": False, "error": "Database not initialized"}, status=500)
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=400)
+
     async def _handle_login(self, request: web.Request):
-        """Authenticates username and password against seeded SQLite users."""
+        """Authenticates username and password with optional Cloudflare Turnstile CAPTCHA."""
         try:
             body = await request.json()
             username = body.get("username", "").strip()
             password = body.get("password", "")
+            cf_token = body.get("cf_turnstile_response") or body.get("turnstile_token") or ""
+
+            # Check if Cloudflare Turnstile is enabled
+            if hasattr(self.engine, "db") and self.engine.db:
+                t_cfg = self.engine.db.get_turnstile_config()
+                if t_cfg.get("enabled") == 1 and t_cfg.get("secret_key", "").strip():
+                    if not cf_token:
+                        return web.json_response({
+                            "success": False,
+                            "error": "Cloudflare Turnstile verification required. Please complete the captcha.",
+                        }, status=400)
+
+                    # Verify token with Cloudflare API
+                    client_ip = self._get_client_ip(request)
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                                json={
+                                    "secret": t_cfg["secret_key"].strip(),
+                                    "response": cf_token,
+                                    "remoteip": client_ip,
+                                },
+                                timeout=aiohttp.ClientTimeout(total=5),
+                            ) as cf_resp:
+                                cf_data = await cf_resp.json()
+                                if not cf_data.get("success"):
+                                    logger.warning(f"Turnstile verification rejected for IP {client_ip}: {cf_data}")
+                                    return web.json_response({
+                                        "success": False,
+                                        "error": "Cloudflare Turnstile verification failed. Please refresh and try again.",
+                                    }, status=403)
+                    except Exception as cf_err:
+                        logger.error(f"Error connecting to Cloudflare Turnstile verification endpoint: {cf_err}")
+                        return web.json_response({
+                            "success": False,
+                            "error": f"Turnstile verification server unreachable: {cf_err}",
+                        }, status=502)
 
             # 1. Database-backed authentication
             if hasattr(self.engine, "db") and self.engine.db:

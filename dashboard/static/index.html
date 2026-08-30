@@ -59,6 +59,10 @@
                     <i data-lucide="key" class="icon-sm text-yellow"></i>
                     <span>Polymarket Live SDK</span>
                 </button>
+                <button class="side-nav-btn" id="sideNavTurnstile" type="button">
+                    <i data-lucide="shield-check" class="icon-sm text-cyan"></i>
+                    <span>Cloudflare Turnstile</span>
+                </button>
             </nav>
 
             <!-- Sidebar Risk Controls & Overrides -->
@@ -1113,6 +1117,117 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
                     <button type="button" class="btn btn-outline" id="btnCancelPolyModal">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="btnSavePolySettings">
                         <i data-lucide="save" class="icon-xs"></i> Save & Apply Configuration
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Cloudflare Turnstile Settings Modal -->
+    <div class="modal-overlay hidden" id="turnstileModal">
+        <div class="modal-card modal-md glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="shield-check" class="icon-lg text-cyan"></i>
+                    </div>
+                    <div>
+                        <h3>CLOUDFLARE TURNSTILE</h3>
+                        <p class="modal-subtitle font-mono">Smart Bot Verification • Privacy-Preserving CAPTCHA</p>
+                    </div>
+                </div>
+                <button class="btn-modal-close" id="btnCloseTurnstileModal" type="button" title="Close Modal">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
+            </div>
+
+            <form id="turnstileForm" class="modal-body">
+                <div class="poly-mode-selector glass-panel">
+                    <div class="poly-mode-header">
+                        <span class="font-bold text-white">TURNSTILE LOGIN PROTECTION</span>
+                        <span class="badge badge-muted font-mono" id="turnstileStatusBadge">DISABLED</span>
+                    </div>
+                    <div class="turnstile-toggle-row">
+                        <label class="switch-label">
+                            <input type="checkbox" id="checkTurnstileEnabled">
+                            <span class="switch-slider"></span>
+                        </label>
+                        <span class="font-mono text-sm" id="turnstileToggleLabel">Enable Cloudflare Turnstile on Login</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="inputTurnstileSiteKey">1. Turnstile Site Key (Public Key):</label>
+                    <input type="text" id="inputTurnstileSiteKey" placeholder="0x4AAAAAA..." class="font-mono">
+                    <span class="field-hint">Public widget key rendered on the login form.</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="inputTurnstileSecretKey">2. Turnstile Secret Key (Private Key):</label>
+                    <div class="input-password-wrapper">
+                        <input type="password" id="inputTurnstileSecretKey" placeholder="0x4AAAAAA..." class="font-mono">
+                        <button type="button" class="btn-toggle-eye" id="btnToggleTurnstileSecret" title="Toggle Visibility">
+                            <i data-lucide="eye" class="icon-xs"></i>
+                        </button>
+                    </div>
+                    <span class="field-hint">Private verification key used by the backend server.</span>
+                </div>
+
+                <div class="audit-box font-mono">
+                    <div class="audit-box-header">
+                        <span class="text-cyan"><i data-lucide="info" class="icon-xs"></i> GET TURNSTILE KEYS</span>
+                    </div>
+                    <div class="audit-output">
+                        Get your free Turnstile Site &amp; Secret Keys from the <a href="https://dash.cloudflare.com/?to=/:account/turnstile" target="_blank" class="text-cyan underline">Cloudflare Turnstile Dashboard</a> (Set domain to <code>poly.0x7sec.com</code> or <code>0x7sec.com</code>).
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="btnCancelTurnstileModal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="btnSaveTurnstileSettings">
+                        <i data-lucide="save" class="icon-xs"></i> Save &amp; Apply
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dedicated Login & Security Modal -->
+    <div class="modal-overlay hidden" id="loginModal">
+        <div class="modal-card modal-sm glass-panel">
+            <div class="modal-header">
+                <div class="brand-group">
+                    <div class="modal-icon-badge">
+                        <i data-lucide="lock" class="icon-lg text-cyan"></i>
+                    </div>
+                    <div>
+                        <h3>QUANT TERMINAL LOGIN</h3>
+                        <p class="modal-subtitle font-mono">Poly-Harvester Autonomous Quant Engine</p>
+                    </div>
+                </div>
+            </div>
+
+            <form id="loginForm" class="modal-body">
+                <div class="form-group">
+                    <label for="loginUsername">Username:</label>
+                    <input type="text" id="loginUsername" placeholder="admin" class="font-mono" value="admin" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="loginPassword">Password:</label>
+                    <input type="password" id="loginPassword" placeholder="••••••••" class="font-mono" required>
+                </div>
+
+                <!-- Cloudflare Turnstile Dynamic Widget Container -->
+                <div id="loginTurnstileContainer" class="turnstile-wrapper hidden">
+                    <div id="cfTurnstileWidget"></div>
+                </div>
+
+                <div id="loginErrorMsg" class="text-red font-mono text-xs hidden"></div>
+
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary btn-block" id="btnSubmitLogin">
+                        <i data-lucide="log-in" class="icon-xs"></i> Authenticate &amp; Enter
                     </button>
                 </div>
             </form>
