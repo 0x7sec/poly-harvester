@@ -543,15 +543,101 @@ svg.lucide, [data-lucide] {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 14px 20px;
+    padding: 10px 18px;
     border-radius: var(--radius-md);
     background: rgba(13, 20, 32, 0.92);
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
-.nav-left, .nav-right {
+.nav-left {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.nav-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+/* Market Timeframe Selector Pill */
+.market-timeframe-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: rgba(6, 182, 212, 0.08);
+    border: 1px solid rgba(6, 182, 212, 0.25);
+    border-radius: var(--radius-sm);
+    font-size: 0.76rem;
+    flex-shrink: 0;
+}
+
+.timeframe-select {
+    background: transparent;
+    border: none;
+    color: var(--accent-cyan);
+    font-weight: 700;
+    font-size: 0.76rem;
+    outline: none;
+    cursor: pointer;
+}
+
+.timeframe-select option {
+    background: #0d1420;
+    color: #ffffff;
+}
+
+/* Session Selector Pill & Truncated Width Control */
+.session-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 0.76rem;
+    max-width: 280px;
+    min-width: 0;
+    flex-shrink: 1;
+}
+
+.session-status-text {
+    font-size: 0.74rem;
+    flex-shrink: 0;
+}
+
+.session-select {
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 0.74rem;
+    outline: none;
+    cursor: pointer;
+    max-width: 190px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.session-select option {
+    background: #0d1420;
+    color: #ffffff;
+}
+
+.session-btn-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
 }
 
 .btn-sidebar-toggle {

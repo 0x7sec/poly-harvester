@@ -9,8 +9,9 @@ let reconnectTimer = null;
 let lastPingTime = 0;
 let latency = 0;
 let lastPrice = 0;
-let priceHistory = [];
 let selectedSessionId = "ACTIVE";
+let lastSeenTradeCount = -1;
+let lastSeenSetCount = -1;
 
 // DOM Elements
 const authModal = document.getElementById("authModal");
@@ -569,6 +570,22 @@ function updateDashboard(data) {
             : (data.inventory.realized_arb_pnl || 0);
 
         realizedPnl.textContent = `${pnl >= 0 ? '+' : '-'}$${Math.abs(pnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        // Real-Time Table Synchronization: Trigger instant refresh if trade/merge count changed
+        if (data.analytics) {
+            const trCount = data.analytics.total_trades || 0;
+            const setCount = data.analytics.total_complete_sets_merged || 0;
+            if (trCount !== lastSeenTradeCount || setCount !== lastSeenSetCount) {
+                lastSeenTradeCount = trCount;
+                lastSeenSetCount = setCount;
+                if (sectionTrades && !sectionTrades.classList.contains("hidden")) {
+                    loadTrades();
+                }
+                if (sectionSets && !sectionSets.classList.contains("hidden")) {
+                    loadCompleteSets();
+                }
+            }
+        }
 
         const isPaused = data.inventory.is_stop_loss_triggered;
         const isTrading = data.session ? data.session.is_trading_active : true;
@@ -1855,4 +1872,14 @@ window.inspectMcpPayload = inspectMcpPayload;
 document.addEventListener("DOMContentLoaded", () => {
     refreshIcons();
     checkExistingAuth();
+
+    // Auto-refresh active visible tables every 2.5s to ensure zero lag
+    setInterval(() => {
+        if (sectionTrades && !sectionTrades.classList.contains("hidden")) {
+            loadTrades();
+        }
+        if (sectionSets && !sectionSets.classList.contains("hidden")) {
+            loadCompleteSets();
+        }
+    }, 2500);
 });
