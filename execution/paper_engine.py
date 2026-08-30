@@ -166,15 +166,18 @@ class PaperTradingEngine:
         # =========================================================================
         # 1. MATCH UP ORDER
         # =========================================================================
-        if self.active_order_up and self.active_order_up.is_active:
+        current_spent = self.inventory.up.total_spent + self.inventory.down.total_spent
+        available_budget = max(0.0, cap_ceiling - current_spent)
+
+        if self.active_order_up and self.active_order_up.is_active and available_budget > 0.0:
             order = self.active_order_up
 
             # Check in-flight latency
             if now >= order.in_flight_until and order.remaining_shares > 0:
-                order_cost = order.price * order.remaining_shares
+                bid_p = order.price
+                max_executable_shares = min(order.remaining_shares, available_budget / bid_p if bid_p > 0 else 0.0)
 
-                if current_spent + order_cost <= cap_ceiling:
-                    bid_p = order.price
+                if max_executable_shares >= 0.01:
                     fill_shares = 0.0
                     fill_price = bid_p
                     fill_fee = 0.0
@@ -194,14 +197,14 @@ class PaperTradingEngine:
 
                     fill_result = simulate_buy_fill(
                         book=book_up,
-                        amount_usd=order.remaining_shares * bid_p,
+                        amount_usd=max_executable_shares * bid_p,
                         fee_rate_bps=fee_rate_bps,
                         order_type="fak",
                         max_price=bid_p,
                     )
 
                     if fill_result.total_shares > 0:
-                        fill_shares = min(order.remaining_shares, fill_result.total_shares)
+                        fill_shares = min(max_executable_shares, fill_result.total_shares)
                         fill_price = fill_result.avg_price
                         fill_fee = fill_result.fee
                         slippage_bps = fill_result.slippage_bps
@@ -220,15 +223,20 @@ class PaperTradingEngine:
                                 tr_vol -= consumed
 
                             if order.queue_ahead_shares <= 0 and tr_vol > 0:
-                                exec_qty = min(order.remaining_shares, tr_vol)
+                                exec_qty = min(max_executable_shares, tr_vol)
                                 fill_shares += exec_qty
                                 fill_price = bid_p
                                 fill_fee = calculate_fee(fee_rate_bps, bid_p, exec_qty)
-                                if fill_shares >= order.remaining_shares:
+                                if fill_shares >= max_executable_shares:
                                     break
 
+                    # Cap fill_shares strictly within remaining available budget
+                    if fill_shares > 0 and fill_price > 0:
+                        max_allowed_shares = max(0.0, available_budget / fill_price)
+                        fill_shares = min(fill_shares, max_allowed_shares)
+
                     # Execute fill if matched
-                    if fill_shares > 0:
+                    if fill_shares >= 0.01:
                         fill_shares = round(fill_shares, 2)
                         self.inventory.on_fill("UP", fill_price, fill_shares, fill_fee)
 
@@ -257,7 +265,6 @@ class PaperTradingEngine:
                         filled_events.append(event)
                         self.fill_history.append(event)
                         order.remaining_shares -= fill_shares
-                        current_spent += fill_price * fill_shares
 
                         if order.remaining_shares <= 0.01:
                             order.is_active = False
@@ -271,14 +278,17 @@ class PaperTradingEngine:
         # =========================================================================
         # 2. MATCH DOWN ORDER
         # =========================================================================
-        if self.active_order_down and self.active_order_down.is_active:
+        current_spent = self.inventory.up.total_spent + self.inventory.down.total_spent
+        available_budget = max(0.0, cap_ceiling - current_spent)
+
+        if self.active_order_down and self.active_order_down.is_active and available_budget > 0.0:
             order = self.active_order_down
 
             if now >= order.in_flight_until and order.remaining_shares > 0:
-                order_cost = order.price * order.remaining_shares
+                bid_p = order.price
+                max_executable_shares = min(order.remaining_shares, available_budget / bid_p if bid_p > 0 else 0.0)
 
-                if current_spent + order_cost <= cap_ceiling:
-                    bid_p = order.price
+                if max_executable_shares >= 0.01:
                     fill_shares = 0.0
                     fill_price = bid_p
                     fill_fee = 0.0
@@ -298,14 +308,14 @@ class PaperTradingEngine:
 
                     fill_result = simulate_buy_fill(
                         book=book_down,
-                        amount_usd=order.remaining_shares * bid_p,
+                        amount_usd=max_executable_shares * bid_p,
                         fee_rate_bps=fee_rate_bps,
                         order_type="fak",
                         max_price=bid_p,
                     )
 
                     if fill_result.total_shares > 0:
-                        fill_shares = min(order.remaining_shares, fill_result.total_shares)
+                        fill_shares = min(max_executable_shares, fill_result.total_shares)
                         fill_price = fill_result.avg_price
                         fill_fee = fill_result.fee
                         slippage_bps = fill_result.slippage_bps
@@ -324,14 +334,19 @@ class PaperTradingEngine:
                                 tr_vol -= consumed
 
                             if order.queue_ahead_shares <= 0 and tr_vol > 0:
-                                exec_qty = min(order.remaining_shares, tr_vol)
+                                exec_qty = min(max_executable_shares, tr_vol)
                                 fill_shares += exec_qty
                                 fill_price = bid_p
                                 fill_fee = calculate_fee(fee_rate_bps, bid_p, exec_qty)
-                                if fill_shares >= order.remaining_shares:
+                                if fill_shares >= max_executable_shares:
                                     break
 
-                    if fill_shares > 0:
+                    # Cap fill_shares strictly within remaining available budget
+                    if fill_shares > 0 and fill_price > 0:
+                        max_allowed_shares = max(0.0, available_budget / fill_price)
+                        fill_shares = min(fill_shares, max_allowed_shares)
+
+                    if fill_shares >= 0.01:
                         fill_shares = round(fill_shares, 2)
                         self.inventory.on_fill("DOWN", fill_price, fill_shares, fill_fee)
 
@@ -360,7 +375,6 @@ class PaperTradingEngine:
                         filled_events.append(event)
                         self.fill_history.append(event)
                         order.remaining_shares -= fill_shares
-                        current_spent += fill_price * fill_shares
 
                         if order.remaining_shares <= 0.01:
                             order.is_active = False

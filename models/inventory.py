@@ -69,10 +69,10 @@ class InventoryManager:
         if self.db is not None:
             self.load_persisted_state()
 
-    def settle_contract_round(self, winning_side: Optional[str] = None, market_title: str = "") -> float:
+    def settle_contract_round(self, winning_side: Optional[str] = None, market_title: str = "", market_slug: str = "") -> float:
         """
         Settles any residual unmerged tokens when a 5M/15M contract round concludes/resolves,
-        books the final round payout into realized PnL, and resets active positions to 0.0
+        books the final round payout into realized PnL, logs to SQLite ledger, and resets active positions to 0.0
         for the fresh upcoming contract round.
         """
         up_shares = self.up.shares
@@ -114,6 +114,21 @@ class InventoryManager:
         if self.db:
             self.db.save_position("UP", 0.0, 0.0, 0.0)
             self.db.save_position("DOWN", 0.0, 0.0, 0.0)
+            try:
+                self.db.log_settlement(
+                    market_title=market_title,
+                    winning_side=winning_side,
+                    up_shares=up_shares,
+                    up_spent=up_spent,
+                    down_shares=down_shares,
+                    down_spent=down_spent,
+                    settlement_pnl=settlement_pnl,
+                    cumulative_pnl=self.realized_arbitrage_pnl,
+                    session_id=self.session_id,
+                    market_slug=market_slug,
+                )
+            except Exception as e:
+                logger.error(f"Failed to log contract settlement to SQLite: {e}")
 
         return settlement_pnl
 

@@ -579,6 +579,88 @@ class DatabaseManager:
                 conn.commit()
                 return cursor.lastrowid
 
+    def log_settlement(
+        self,
+        market_title: str,
+        winning_side: Optional[str],
+        up_shares: float,
+        up_spent: float,
+        down_shares: float,
+        down_spent: float,
+        settlement_pnl: float,
+        cumulative_pnl: float,
+        session_id: str = "GLOBAL",
+        market_slug: str = "",
+    ) -> int:
+        """Logs a contract expiration/resolution settlement into SQLite trades, complete_sets, and sessions."""
+        now = time.time()
+        time_iso = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+
+                # 1. Insert settlement audit entry in trades table
+                cursor.execute(
+                    """
+                    INSERT INTO trades (
+                        timestamp, time_iso, order_id, side, price, shares, cost_usd, fee_usd,
+                        execution_type, up_shares_after, down_shares_after, session_id,
+                        market_title, market_slug
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        now,
+                        time_iso,
+                        f"SETTLE-{int(now * 1000)}",
+                        f"SETTLE_{winning_side or 'EXPIRED'}",
+                        1.00 if winning_side else 0.0,
+                        float(up_shares + down_shares),
+                        float(up_spent + down_spent),
+                        0.0,
+                        "SETTLEMENT",
+                        0.0,
+                        0.0,
+                        session_id,
+                        market_title,
+                        market_slug,
+                    ),
+                )
+                trade_id = cursor.lastrowid
+
+                # 2. Insert settlement ledger event in complete_sets table
+                cursor.execute(
+                    """
+                    INSERT INTO complete_sets (
+                        timestamp, time_iso, sets_merged, up_avg_cost, down_avg_cost,
+                        combined_cost, profit_locked, cumulative_pnl, session_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        now,
+                        time_iso,
+                        0.0,
+                        float(up_spent / up_shares) if up_shares > 0 else 0.0,
+                        float(down_spent / down_shares) if down_shares > 0 else 0.0,
+                        float(up_spent + down_spent),
+                        float(settlement_pnl),
+                        float(cumulative_pnl),
+                        session_id,
+                    ),
+                )
+
+                # 3. If there is an active session in trading_sessions, update its realized_pnl
+                cursor.execute(
+                    """
+                    UPDATE trading_sessions
+                    SET realized_pnl = realized_pnl + ?
+                    WHERE session_id = ?
+                    """,
+                    (float(settlement_pnl), session_id),
+                )
+
+                conn.commit()
+                return trade_id
+
     def set_state(self, key: str, value: Any):
         """Saves an arbitrary state value as JSON in the database."""
         now = time.time()
@@ -1095,6 +1177,9 @@ class DatabaseManager:
                 cursor.execute("SELECT * FROM trading_sessions WHERE session_id = ?", (session_id,))
                 row = cursor.fetchone()
                 return dict(row) if row else None
+
+    # Alias for get_session_by_id
+    get_session = get_session_by_id
 
     def list_sessions(self, limit: int = 50) -> List[dict]:
         """Returns list of historical trading sessions."""

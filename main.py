@@ -336,7 +336,7 @@ class PolymarketQuantEngine:
         
         # 1. Settle residual shares of the concluding contract and reset active inventory to 0.0
         if hasattr(self, "inventory") and self.inventory:
-            self.inventory.settle_contract_round(winning_side=winning_side, market_title=old_title)
+            self.inventory.settle_contract_round(winning_side=winning_side, market_title=old_title, market_slug=old_slug)
         
         # 2. Reset active paper engine & live engine in-flight orders
         if hasattr(self, "paper_engine") and self.paper_engine:

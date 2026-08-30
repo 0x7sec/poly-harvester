@@ -414,6 +414,48 @@ class TestPolymarketQuantEngine(unittest.TestCase):
 
         asyncio.run(_test())
 
+    def test_paper_engine_concurrent_fills_do_not_exceed_capital_ceiling(self):
+        """Tests that concurrent UP and DOWN fills in paper mode strictly respect the allocated capital ceiling."""
+        inventory = InventoryManager(max_combined_cost=0.960)
+        inventory.allocated_capital = 10.00  # Strict $10.00 capital limit
+        engine = PaperTradingEngine(inventory=inventory, order_size_shares=20.0, in_flight_latency_sec=0.0)
+
+        # Place orders: UP 20 shs @ 0.45 ($9.00) and DOWN 20 shs @ 0.45 ($9.00) -> Total $18.00 > $10.00 limit
+        engine.update_quotes(quote_up=0.45, quote_down=0.45, allow_up=True, allow_down=True)
+
+        feed = PolymarketFeed(auto_discover=False)
+        feed.up_best_ask = 0.45
+        feed.up_asks = [{"price": 0.45, "size": 100.0}]
+        feed.down_best_ask = 0.45
+        feed.down_asks = [{"price": 0.45, "size": 100.0}]
+
+        fills = engine.check_fills(
+            up_market_ask=0.45,
+            down_market_ask=0.45,
+            feed=feed,
+        )
+
+        total_spent = inventory.up.total_spent + inventory.down.total_spent
+        self.assertLessEqual(total_spent, 10.00, "Total paper trading spent capital must never exceed allocated budget")
+        self.assertTrue(len(fills) >= 1)
+
+    def test_orderbook_buy_fee_calculation(self):
+        """Tests that simulate_buy_fill calculates fees proportionally to share volume and probability uncertainty."""
+        from pm_trader.models import OrderBook, OrderBookLevel
+        from pm_trader.orderbook import simulate_buy_fill, calculate_fee
+
+        # 100 shares @ $0.50 with 100 bps fee rate (1%) -> Fee = 0.01 * min(0.5, 0.5) * 100 = $0.50
+        manual_fee = calculate_fee(100, 0.50, 100.0)
+        self.assertAlmostEqual(manual_fee, 0.50, places=4)
+
+        book = OrderBook(
+            bids=[],
+            asks=[OrderBookLevel(price=0.50, size=100.0)],
+        )
+        res = simulate_buy_fill(book=book, amount_usd=50.0, fee_rate_bps=100, order_type="fak")
+        self.assertEqual(res.total_shares, 100.0)
+        self.assertAlmostEqual(res.fee, 0.50, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -176,6 +176,39 @@ class TestStorageAndRecovery(unittest.TestCase):
         self.assertNotEqual(sess1["session_id"], sess3["session_id"])
         self.assertEqual(sess3["status"], "ACTIVE")
 
+    def test_contract_rollover_settlement_logged_to_sqlite(self):
+        """Tests that contract rollover settlement events are reliably logged to SQLite trades, complete_sets, and sessions."""
+        sess = self.db.create_session(name="Test Rollover Session", mode="PAPER", allocated_capital=300.0)
+        sess_id = sess["session_id"]
+
+        inventory = InventoryManager(db=self.db, max_combined_cost=0.960)
+        inventory.session_id = sess_id
+
+        # 1. Fill 20 UP @ 0.45 ($9.00 spent)
+        inventory.on_fill("UP", price=0.45, shares=20.0, fee=0.05, auto_merge=False)
+        self.assertEqual(inventory.up.shares, 20.0)
+
+        # 2. Settle round with UP winning (Payout = 20 * $1.00 = $20.00, PnL = $20.00 - $9.00 = +$11.00)
+        settlement_pnl = inventory.settle_contract_round(winning_side="UP", market_title="BTC Rolling 5M", market_slug="btc-5m-123")
+        self.assertAlmostEqual(settlement_pnl, 11.00, places=2)
+        self.assertEqual(inventory.up.shares, 0.0)
+        self.assertEqual(inventory.down.shares, 0.0)
+
+        # 3. Verify SQLite trades table has SETTLEMENT entry
+        trades = self.db.get_session_trades(session_id=sess_id)
+        settle_trades = [t for t in trades if "SETTLE" in str(t.get("side", "")) or t.get("execution_type") == "SETTLEMENT"]
+        self.assertTrue(len(settle_trades) >= 1)
+        self.assertEqual(settle_trades[0]["market_slug"], "btc-5m-123")
+
+        # 4. Verify complete_sets ledger has settlement row
+        sets = self.db.get_complete_sets(limit=10)
+        self.assertTrue(len(sets) >= 1)
+        self.assertAlmostEqual(sets[0]["profit_locked"], 11.00, places=2)
+
+        # 5. Verify trading session realized_pnl was updated in database
+        updated_sess = self.db.get_session(sess_id)
+        self.assertAlmostEqual(updated_sess["realized_pnl"], 11.00, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()
