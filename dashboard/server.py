@@ -1127,6 +1127,7 @@ class DashboardServer:
                 }
             },
             "security": [{"ApiKeyAuth": []}]
+        }
         return web.json_response(openapi_spec)
 
     def record_price_tick(self, price: float, velocity: float):

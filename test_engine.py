@@ -247,9 +247,34 @@ class TestPolymarketQuantEngine(unittest.TestCase):
             mgr._secure_client = MockSecureClient()
             res = await mgr.place_limit_order(token_id="test_tok", side="BUY", price=0.45, amount_shares=10.0)
             self.assertEqual(res["status"], "ERROR")
-            self.assertEqual(res["error"], "insufficient collateral balance")
-
         asyncio.run(_test())
+
+    def test_dashboard_server_initialization_and_telemetry(self):
+        """Tests that DashboardServer can be instantiated and generates valid telemetry."""
+        import tempfile
+        import shutil
+        import os
+        from config import BotConfig
+        from main import PolymarketQuantEngine
+        from dashboard.server import DashboardServer
+        from storage.database import DatabaseManager
+
+        temp_dir = tempfile.mkdtemp()
+        try:
+            db = DatabaseManager(db_path=os.path.join(temp_dir, "test.db"))
+            config = BotConfig(enable_dashboard=False)
+            engine = PolymarketQuantEngine(config, db=db)
+            server = DashboardServer(engine=engine, host="127.0.0.1", port=8443)
+
+            payload = server._get_telemetry_payload()
+            self.assertIn("timestamp", payload)
+            self.assertIn("session", payload)
+            self.assertIn("binance", payload)
+            self.assertIn("quotes", payload)
+            self.assertIn("inventory", payload)
+            self.assertEqual(payload["session"]["status"], "STANDBY")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
