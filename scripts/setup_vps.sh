@@ -164,20 +164,21 @@ nginx -t && systemctl reload nginx
 
 # 6. Attempt automated Let's Encrypt SSL certificate
 echo "🔒 Checking Let's Encrypt SSL for poly.0x7sec.com..."
-certbot --nginx -d poly.0x7sec.com --non-interactive --agree-tos --register-unsafely-without-email --redirect || echo "⚠️ Certbot notice: If DNS is still propagating, SSL will activate once Cloudflare DNS resolves."
+certbot --nginx -d poly.0x7sec.com --non-interactive --agree-tos --register-unsafely-without-email --redirect || echo "⚠️ Certbot notice: If DNS is still propagating, Cloudflare SSL proxy handles HTTPS."
 
 # 7. Configure Firewall (UFW)
 echo "🛡️ Configuring Firewall..."
-ufw allow 22/tcp
-ufw allow 80/tcp
-ufw allow 443/tcp
-ufw allow 8443/tcp
-ufw --force enable
+ufw allow 22/tcp || true
+ufw allow 80/tcp || true
+ufw allow 443/tcp || true
+ufw allow 8443/tcp || true
+ufw --force enable || true
 
+HOST_IP=$(hostname -I | awk '{print $1}')
 echo "=============================================================================="
 echo "🎉 Poly-Harvester Debian VPS Setup Complete!"
 echo "   Domain:         https://poly.0x7sec.com"
-echo "   Service Status: sudo systemctl status poly-harvester"
-echo "   Live Logs:      sudo journalctl -u poly-harvester -f"
-echo "   Dashboard:      http://$(curl -s ifconfig.me):8443"
+echo "   Service Status: systemctl status poly-harvester"
+echo "   Live Logs:      journalctl -u poly-harvester -f"
+echo "   Dashboard:      http://${HOST_IP}:8443"
 echo "=============================================================================="
