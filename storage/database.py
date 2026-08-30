@@ -1107,6 +1107,18 @@ class DatabaseManager:
                 conn.commit()
         return self.get_session_by_id(target_sess)
 
+    def get_session_trades_count(self, session_id: Optional[str] = None) -> int:
+        """Returns total trade count for a session (or aggregate if None/'ALL')."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if session_id and session_id.upper() != "ALL":
+                    cursor.execute("SELECT COUNT(*) FROM trades WHERE session_id = ?", (session_id,))
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM trades")
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+
     def get_session_trades(self, session_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[dict]:
         """Retrieves trades filtered by session_id (or all if session_id is None/'ALL')."""
         with self._lock:
@@ -1139,6 +1151,18 @@ class DatabaseManager:
                     )
                 rows = cursor.fetchall()
                 return [dict(r) for r in rows]
+
+    def get_session_complete_sets_count(self, session_id: Optional[str] = None) -> int:
+        """Returns total complete sets merge count for a session (or aggregate if None/'ALL')."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                if session_id and session_id.upper() != "ALL":
+                    cursor.execute("SELECT COUNT(*) FROM complete_sets WHERE session_id = ?", (session_id,))
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM complete_sets")
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
 
     def get_session_complete_sets(self, session_id: Optional[str] = None, limit: int = 50, offset: int = 0) -> List[dict]:
         """Retrieves complete sets filtered by session_id."""

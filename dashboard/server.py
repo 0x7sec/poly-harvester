@@ -308,35 +308,51 @@ class DashboardServer:
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
 
-        limit = int(request.query.get("limit", 50))
-        offset = int(request.query.get("offset", 0))
+        limit = max(1, min(1000, int(request.query.get("limit", 50))))
+        offset = max(0, int(request.query.get("offset", 0)))
         session_id = request.query.get("session_id")
         if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
             session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
             trades = self.engine.db.get_session_trades(session_id=session_id, limit=limit, offset=offset)
+            total_count = self.engine.db.get_session_trades_count(session_id=session_id)
         else:
             trades = self.engine.paper_engine.fill_history[-limit:]
+            total_count = len(self.engine.paper_engine.fill_history)
 
-        return web.json_response({"trades": trades, "session_id": session_id or "ALL"})
+        return web.json_response({
+            "trades": trades,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "session_id": session_id or "ALL",
+        })
 
     async def _handle_complete_sets(self, request: web.Request):
         if not self._verify_auth(request):
             return web.json_response({"error": "Unauthorized"}, status=401)
 
-        limit = int(request.query.get("limit", 50))
-        offset = int(request.query.get("offset", 0))
+        limit = max(1, min(1000, int(request.query.get("limit", 50))))
+        offset = max(0, int(request.query.get("offset", 0)))
         session_id = request.query.get("session_id")
         if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
             session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
             sets = self.engine.db.get_session_complete_sets(session_id=session_id, limit=limit, offset=offset)
+            total_count = self.engine.db.get_session_complete_sets_count(session_id=session_id)
         else:
             sets = []
+            total_count = 0
 
-        return web.json_response({"complete_sets": sets, "session_id": session_id or "ALL"})
+        return web.json_response({
+            "complete_sets": sets,
+            "total_count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "session_id": session_id or "ALL",
+        })
 
     async def _handle_analytics(self, request: web.Request):
         if not self._verify_auth(request):

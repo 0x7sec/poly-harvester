@@ -427,11 +427,17 @@
             <!-- Section 1: Executed Trades Stream -->
             <section class="log-section glass-panel" id="sectionTrades">
                 <div class="section-toolbar">
-                    <div style="display: flex; align-items: center; gap: 12px;">
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                         <span class="toolbar-title font-mono">SQLITE EXECUTED ORDER FILLS (TRANSACTION LEDGER)</span>
                         <select id="tradeMarketFilter" class="filter-select font-mono" title="Filter by Market">
                             <option value="ALL" selected>All Session Fills</option>
                             <option value="ACTIVE">Current Live Market Only</option>
+                        </select>
+                        <select id="tradeLimitSelect" class="filter-select font-mono" title="Fills Per Page">
+                            <option value="50" selected>Show 50</option>
+                            <option value="100">Show 100</option>
+                            <option value="250">Show 250</option>
+                            <option value="1000">Show All (1000)</option>
                         </select>
                     </div>
                     <span class="toolbar-count font-mono" id="tradeCountLabel">0 Fills</span>
@@ -460,7 +466,15 @@
             <!-- Section 2: Complete-Sets Merge Ledger -->
             <section class="log-section glass-panel hidden" id="sectionSets">
                 <div class="section-toolbar">
-                    <span class="toolbar-title font-mono">GUARANTEED $1.00 CTF REDEMPTION LEDGER</span>
+                    <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                        <span class="toolbar-title font-mono">GUARANTEED $1.00 CTF REDEMPTION LEDGER</span>
+                        <select id="setsLimitSelect" class="filter-select font-mono" title="Merges Per Page">
+                            <option value="50" selected>Show 50</option>
+                            <option value="100">Show 100</option>
+                            <option value="250">Show 250</option>
+                            <option value="1000">Show All (1000)</option>
+                        </select>
+                    </div>
                     <span class="toolbar-count font-mono" id="setsCountLabel">0 Merges</span>
                 </div>
                 <div class="table-container">

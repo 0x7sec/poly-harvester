@@ -1173,11 +1173,14 @@ let currentMarketSlug = "";
 
 async function loadTrades() {
     try {
-        const url = `/api/trades?limit=50&session_id=${encodeURIComponent(selectedSessionId)}`;
+        const limitEl = document.getElementById("tradeLimitSelect");
+        const limit = limitEl ? limitEl.value : 50;
+        const url = `/api/trades?limit=${limit}&session_id=${encodeURIComponent(selectedSessionId)}`;
         const res = await fetch(url, { headers: { "X-Auth-Token": authToken } });
         if (res.ok) {
             const data = await res.json();
             let trades = data.trades || [];
+            const totalCount = data.total_count !== undefined ? data.total_count : trades.length;
             
             const filterEl = document.getElementById("tradeMarketFilter");
             const filterVal = filterEl ? filterEl.value : "ALL";
@@ -1185,7 +1188,13 @@ async function loadTrades() {
                 trades = trades.filter(t => t.market_title === currentMarketTitle || (t.market_slug && t.market_slug === currentMarketSlug));
             }
 
-            document.getElementById("tradeCountLabel").textContent = `${trades.length} Fills (${data.session_id || selectedSessionId})`;
+            const countText = (filterVal === "ACTIVE")
+                ? `${trades.length} Active Fills (${data.session_id || selectedSessionId})`
+                : (trades.length < totalCount)
+                    ? `Showing ${trades.length} of ${totalCount} Total Fills (${data.session_id || selectedSessionId})`
+                    : `${totalCount} Total Fills (${data.session_id || selectedSessionId})`;
+
+            document.getElementById("tradeCountLabel").textContent = countText;
             if (trades.length === 0) {
                 tradeBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">No trades recorded for this filter. Waiting for live CLOB fills...</td></tr>`;
                 return;
@@ -1226,14 +1235,27 @@ if (tradeMarketFilter) {
     tradeMarketFilter.addEventListener("change", () => loadTrades());
 }
 
+const tradeLimitSelect = document.getElementById("tradeLimitSelect");
+if (tradeLimitSelect) {
+    tradeLimitSelect.addEventListener("change", () => loadTrades());
+}
+
 async function loadCompleteSets() {
     try {
-        const url = `/api/complete_sets?limit=50&session_id=${encodeURIComponent(selectedSessionId)}`;
+        const limitEl = document.getElementById("setsLimitSelect");
+        const limit = limitEl ? limitEl.value : 50;
+        const url = `/api/complete_sets?limit=${limit}&session_id=${encodeURIComponent(selectedSessionId)}`;
         const res = await fetch(url, { headers: { "X-Auth-Token": authToken } });
         if (res.ok) {
             const data = await res.json();
             const sets = data.complete_sets || [];
-            document.getElementById("setsCountLabel").textContent = `${sets.length} Merges (${data.session_id || selectedSessionId})`;
+            const totalCount = data.total_count !== undefined ? data.total_count : sets.length;
+
+            const countText = (sets.length < totalCount)
+                ? `Showing ${sets.length} of ${totalCount} Merge Events (${data.session_id || selectedSessionId})`
+                : `${totalCount} Total Merge Events (${data.session_id || selectedSessionId})`;
+
+            document.getElementById("setsCountLabel").textContent = countText;
             if (sets.length === 0) {
                 setsBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No complete sets merged in this session yet.</td></tr>`;
                 return;
@@ -1249,8 +1271,14 @@ async function loadCompleteSets() {
                     <td class="text-green font-bold">+$${s.cumulative_pnl.toFixed(2)}</td>
                 </tr>
             `).join("");
+            refreshIcons();
         }
     } catch (e) {}
+}
+
+const setsLimitSelect = document.getElementById("setsLimitSelect");
+if (setsLimitSelect) {
+    setsLimitSelect.addEventListener("change", () => loadCompleteSets());
 }
 
 async function loadAnalytics() {
