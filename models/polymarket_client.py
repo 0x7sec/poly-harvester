@@ -411,6 +411,7 @@ class PolymarketManager:
         side: str,
         price: float,
         amount_shares: float,
+        post_only: bool = True,
     ) -> Dict[str, Any]:
         """
         Submits an EIP-712 signed limit order to the Polymarket CLOB.
@@ -446,6 +447,7 @@ class PolymarketManager:
                 side=order_side,
                 price=price,
                 size=amount_shares,
+                post_only=post_only,
             )
 
             # FIX BLOCKER 4: Explicitly check for RejectedOrder vs AcceptedOrder
