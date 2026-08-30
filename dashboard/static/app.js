@@ -520,6 +520,8 @@ function updateDashboard(data) {
 
     // 3. Polymarket CLOB Book Spread
     if (data.polymarket) {
+        if (data.polymarket.market_title) currentMarketTitle = data.polymarket.market_title;
+        if (data.polymarket.market_slug) currentMarketSlug = data.polymarket.market_slug;
         const upB = data.polymarket.up_bid || 0;
         const upA = data.polymarket.up_ask || 0;
         const dnB = data.polymarket.down_bid || 0;
@@ -1103,26 +1105,41 @@ async function loadSessionList() {
     } catch (e) {}
 }
 
+let currentMarketTitle = "";
+let currentMarketSlug = "";
+
 async function loadTrades() {
     try {
         const url = `/api/trades?limit=50&session_id=${encodeURIComponent(selectedSessionId)}`;
         const res = await fetch(url, { headers: { "X-Auth-Token": authToken } });
         if (res.ok) {
             const data = await res.json();
-            const trades = data.trades || [];
+            let trades = data.trades || [];
+            
+            const filterEl = document.getElementById("tradeMarketFilter");
+            const filterVal = filterEl ? filterEl.value : "ALL";
+            if (filterVal === "ACTIVE" && currentMarketTitle) {
+                trades = trades.filter(t => t.market_title === currentMarketTitle || (t.market_slug && t.market_slug === currentMarketSlug));
+            }
+
             document.getElementById("tradeCountLabel").textContent = `${trades.length} Fills (${data.session_id || selectedSessionId})`;
             if (trades.length === 0) {
-                tradeBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">No trades recorded for this session. Waiting for live CLOB fills...</td></tr>`;
+                tradeBody.innerHTML = `<tr><td colspan="8" class="text-center text-muted">No trades recorded for this filter. Waiting for live CLOB fills...</td></tr>`;
                 return;
             }
             tradeBody.innerHTML = trades.map(t => {
                 const title = t.market_title || "Polymarket Prediction Market";
                 const slug = t.market_slug || "";
                 const marketUrl = slug ? `https://polymarket.com/event/${slug}` : `https://polymarket.com`;
+                const isLive = currentMarketTitle && (title === currentMarketTitle || slug === currentMarketSlug);
+                const statusTag = isLive 
+                    ? '<span class="status-tag-live font-mono">LIVE</span>' 
+                    : '<span class="status-tag-settled font-mono">SETTLED</span>';
                 return `
                 <tr>
                     <td class="text-muted">${t.time_iso || ''}</td>
                     <td class="market-col">
+                        ${statusTag}
                         <a href="${marketUrl}" target="_blank" rel="noopener noreferrer" class="trade-market-link" title="${title}">
                             <i data-lucide="external-link" class="icon-2xs text-cyan"></i>
                             <span class="market-name-truncate">${title}</span>
@@ -1139,6 +1156,11 @@ async function loadTrades() {
             refreshIcons();
         }
     } catch (e) {}
+}
+
+const tradeMarketFilter = document.getElementById("tradeMarketFilter");
+if (tradeMarketFilter) {
+    tradeMarketFilter.addEventListener("change", () => loadTrades());
 }
 
 async function loadCompleteSets() {

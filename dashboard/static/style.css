@@ -2319,6 +2319,48 @@ svg.lucide, [data-lucide] {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.filter-select {
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    padding: 3px 8px;
+    outline: none;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.filter-select:hover, .filter-select:focus {
+    border-color: var(--accent-cyan);
+    color: #ffffff;
+}
+
+.status-tag-live {
+    font-size: 0.62rem;
+    font-weight: 800;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid var(--accent-green);
+    color: var(--accent-green);
+    margin-right: 5px;
+}
+
+.status-tag-settled {
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    color: var(--text-muted);
+    margin-right: 5px;
+}
+
+.market-name-truncate {
     display: inline-block;
     max-width: 220px;
     vertical-align: middle;

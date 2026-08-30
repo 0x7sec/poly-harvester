@@ -420,7 +420,13 @@
             <!-- Section 1: Executed Trades Stream -->
             <section class="log-section glass-panel" id="sectionTrades">
                 <div class="section-toolbar">
-                    <span class="toolbar-title font-mono">SQLITE EXECUTED ORDER FILLS</span>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span class="toolbar-title font-mono">SQLITE EXECUTED ORDER FILLS (TRANSACTION LEDGER)</span>
+                        <select id="tradeMarketFilter" class="filter-select font-mono" title="Filter by Market">
+                            <option value="ALL" selected>All Session Fills</option>
+                            <option value="ACTIVE">Current Live Market Only</option>
+                        </select>
+                    </div>
                     <span class="toolbar-count font-mono" id="tradeCountLabel">0 Fills</span>
                 </div>
                 <div class="table-container">
