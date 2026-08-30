@@ -413,6 +413,10 @@ function connectWebSocket() {
 // ==================== Dashboard Metrics Update ====================
 
 function updateDashboard(data) {
+    // Sections 1-7 are telemetry rendering. Wrap them so a single rendering
+    // error (a missing element, a bad field, etc.) can never prevent the
+    // session-controls block (section 8) below from running.
+    try {
     // 1. Reference Feed (Binance)
     if (data.binance) {
         const p = data.binance.price || 0;
@@ -608,6 +612,12 @@ function updateDashboard(data) {
             polyUsdcBalance.textContent = `$${uBal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         }
 
+        // Execution Mode (single source of truth for the LIVE/PAPER pill, badge,
+        // and the wallet-address label below). Declared before first use to avoid
+        // a temporal-dead-zone ReferenceError that aborted updateDashboard and
+        // left the session controls unrendered.
+        const isLive = data.live_trading_active === true;
+
         // Wallet Address
         const cardWalletAddr = document.getElementById("polyCardWalletAddr");
         if (cardWalletAddr) {
@@ -622,7 +632,6 @@ function updateDashboard(data) {
         }
 
         // Execution Mode Pill & Badge
-        const isLive = data.live_trading_active === true;
         const polyModeDot = document.getElementById("polyModeDot");
         const polyModeText = document.getElementById("polyModeText");
         const polyCardModeBadge = document.getElementById("polyCardModeBadge");
@@ -638,6 +647,10 @@ function updateDashboard(data) {
         if (polyCardModeBadge) {
             polyCardModeBadge.textContent = isLive ? "LIVE CLOB" : "PAPER";
         }
+    }
+    } catch (telemetryErr) {
+        // A telemetry rendering error must not block the session controls below.
+        console.error("Telemetry render error (sections 1-7):", telemetryErr);
     }
 
     // 8. Session State & Top-Bar Session Controls
