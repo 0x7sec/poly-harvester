@@ -93,10 +93,11 @@ class InventoryManager:
                 payout = down_shares * 1.00
                 settlement_pnl = payout - (up_spent + down_spent)
             else:
-                settlement_pnl = 0.0
+                # Outcome expired or unredeemed: book unrecovered capital as loss
+                settlement_pnl = -(up_spent + down_spent)
         else:
-            # If no clear oracle outcome, redeem winning side based on highest share inventory
-            settlement_pnl = 0.0
+            # If no winning side is resolved, record the net spent capital as loss
+            settlement_pnl = -(up_spent + down_spent)
 
         self.realized_arbitrage_pnl += settlement_pnl
 

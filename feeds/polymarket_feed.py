@@ -255,7 +255,7 @@ class PolymarketFeed:
 
                                 # Trigger contract round rollover and settlement if switching to a new contract
                                 if old_slug and old_slug != self.market_slug and self.on_rollover_callback:
-                                    winning_side = "UP" if self.up_best_bid >= 0.65 else ("DOWN" if self.down_best_bid >= 0.65 else None)
+                                    winning_side = "UP" if (self.up_best_bid >= 0.50 and self.up_best_bid >= self.down_best_bid) else ("DOWN" if (self.down_best_bid >= 0.50 and self.down_best_bid > self.up_best_bid) else None)
                                     try:
                                         res = self.on_rollover_callback(old_slug, old_title, self.market_slug, self.market_title, winning_side)
                                         if asyncio.iscoroutine(res):
