@@ -23,9 +23,12 @@ benchmark_*_report.json
 data/*.db*
 data/cache/
 
-# IDE & OS
+# IDE, AI Agents & OS
+.agents/*
+.agent/*
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
 

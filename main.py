@@ -275,15 +275,17 @@ class PolymarketQuantEngine:
                 if filled:
                     for fill in filled:
                         self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
-                        inv_summary = self.inventory.get_summary()
-                        self.recorder.log_trade(fill, inv_summary)
+                        if self.config.log_trades_to_csv and self.recorder:
+                            inv_summary = self.inventory.get_summary()
+                            self.recorder.log_trade(fill, inv_summary)
             else:
                 filled = await self.live_engine.check_fills(feed=self.polymarket_feed)
                 if filled:
                     for fill in filled:
                         self.last_fill_event = f"LIVE {fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
-                        inv_summary = self.inventory.get_summary()
-                        self.recorder.log_trade(fill, inv_summary)
+                        if self.config.log_trades_to_csv and self.recorder:
+                            inv_summary = self.inventory.get_summary()
+                            self.recorder.log_trade(fill, inv_summary)
 
         await self._evaluate_and_quote()
 
@@ -304,16 +306,18 @@ class PolymarketQuantEngine:
                 if filled:
                     for fill in filled:
                         self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
-                        inv_summary = self.inventory.get_summary()
-                        self.recorder.log_trade(fill, inv_summary)
+                        if self.config.log_trades_to_csv and self.recorder:
+                            inv_summary = self.inventory.get_summary()
+                            self.recorder.log_trade(fill, inv_summary)
             else:
                 # Live Trading Fill Reconciliation
                 filled = await self.live_engine.check_fills(feed=feed)
                 if filled:
                     for fill in filled:
                         self.last_fill_event = f"LIVE {fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
-                        inv_summary = self.inventory.get_summary()
-                        self.recorder.log_trade(fill, inv_summary)
+                        if self.config.log_trades_to_csv and self.recorder:
+                            inv_summary = self.inventory.get_summary()
+                            self.recorder.log_trade(fill, inv_summary)
 
         # 2. Recalculate optimal quotes
         await self._evaluate_and_quote()

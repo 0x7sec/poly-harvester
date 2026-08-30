@@ -2132,7 +2132,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const val = e.target.value;
             try { localStorage.setItem("poly_timeframe", val); } catch (err) {}
             try {
-                await fetch("/api/config/timeframe", {
+                await fetch("/api/control/set_timeframe", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "X-Auth-Token": authToken },
                     body: JSON.stringify({ timeframe: val })

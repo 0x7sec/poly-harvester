@@ -242,7 +242,7 @@ class LiveTradingEngine:
                                         up_shares_after=self.inventory.up.shares,
                                         down_shares_after=self.inventory.down.shares,
                                         execution_type="LIVE",
-                                        session_id=getattr(self.inventory, "current_session_id", "LIVE"),
+                                        session_id=getattr(self.inventory, "session_id", "GLOBAL"),
                                     )
                                 except Exception as e:
                                     logger.error(f"Failed to log live trade to SQLite: {e}")
@@ -291,7 +291,7 @@ class LiveTradingEngine:
                                         up_shares_after=self.inventory.up.shares,
                                         down_shares_after=self.inventory.down.shares,
                                         execution_type="LIVE",
-                                        session_id=getattr(self.inventory, "current_session_id", "LIVE"),
+                                        session_id=getattr(self.inventory, "session_id", "GLOBAL"),
                                     )
                                 except Exception as e:
                                     logger.error(f"Failed to log live trade to SQLite: {e}")

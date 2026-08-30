@@ -5,6 +5,8 @@ complete-set merge ledger, and dynamic risk controls with Diskcache state persis
 """
 import asyncio
 import collections
+import csv
+import io
 import json
 import logging
 import os
@@ -155,6 +157,7 @@ class DashboardServer:
         # Telemetry & Storage Endpoints
         self.app.router.add_get("/api/status", self._handle_status)
         self.app.router.add_get("/api/trades", self._handle_trades)
+        self.app.router.add_get("/api/export/trades.csv", self._handle_export_trades_csv)
         self.app.router.add_get("/api/complete_sets", self._handle_complete_sets)
         self.app.router.add_get("/api/analytics", self._handle_analytics)
 
@@ -446,7 +449,7 @@ class DashboardServer:
         limit = max(1, min(1000, int(request.query.get("limit", 50))))
         offset = max(0, int(request.query.get("offset", 0)))
         session_id = request.query.get("session_id")
-        if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
+        if (session_id is None or session_id.upper() in ("ACTIVE", "CURRENT")) and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
             session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
@@ -471,7 +474,7 @@ class DashboardServer:
         limit = max(1, min(1000, int(request.query.get("limit", 50))))
         offset = max(0, int(request.query.get("offset", 0)))
         session_id = request.query.get("session_id")
-        if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
+        if (session_id is None or session_id.upper() in ("ACTIVE", "CURRENT")) and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
             session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
@@ -494,7 +497,7 @@ class DashboardServer:
             return web.json_response({"error": "Unauthorized"}, status=401)
 
         session_id = request.query.get("session_id")
-        if session_id is None and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
+        if (session_id is None or session_id.upper() in ("ACTIVE", "CURRENT")) and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
             session_id = self.engine.current_session_id
 
         if hasattr(self.engine, "db") and self.engine.db:
@@ -509,6 +512,55 @@ class DashboardServer:
             }
 
         return web.json_response(analytics)
+
+    async def _handle_export_trades_csv(self, request: web.Request):
+        """Streams executed trade history as a downloadable CSV file."""
+        if not self._verify_auth(request):
+            return web.Response(text="Unauthorized", status=401)
+
+        session_id = request.query.get("session_id")
+        if (session_id is None or session_id.upper() in ("ACTIVE", "CURRENT")) and hasattr(self.engine, "current_session_id") and self.engine.current_session_id != "STANDBY":
+            session_id = self.engine.current_session_id
+
+        if hasattr(self.engine, "db") and self.engine.db:
+            trades = self.engine.db.get_session_trades(session_id=session_id, limit=50000, offset=0)
+        else:
+            trades = self.engine.paper_engine.fill_history
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "timestamp", "time_iso", "session_id", "market_title", "market_slug",
+            "side", "price", "shares", "cost_usd", "fee_usd", "execution_type",
+            "up_shares_after", "down_shares_after", "order_id"
+        ])
+        for t in trades:
+            writer.writerow([
+                t.get("timestamp", ""),
+                t.get("time_iso", ""),
+                t.get("session_id", ""),
+                t.get("market_title", ""),
+                t.get("market_slug", ""),
+                t.get("side", ""),
+                t.get("price", 0.0),
+                t.get("shares", 0.0),
+                t.get("cost_usd", 0.0),
+                t.get("fee_usd", 0.0),
+                t.get("execution_type", "PAPER"),
+                t.get("up_shares_after", 0.0),
+                t.get("down_shares_after", 0.0),
+                t.get("order_id", ""),
+            ])
+
+        csv_content = output.getvalue()
+        sess_tag = session_id or "all"
+        filename = f"poly_trades_{sess_tag}_{int(time.time())}.csv"
+
+        return web.Response(
+            text=csv_content,
+            content_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     # ================= Session Management Handlers =================
 
