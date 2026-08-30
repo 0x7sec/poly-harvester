@@ -133,15 +133,22 @@ class PolymarketQuantEngine:
         self.last_fill_event: str = "None"
         self._running: bool = False
 
-        # Session & Trading Controls (Default to STANDBY: Requires manual start from UI)
-        self.is_trading_active: bool = False
+        # Session & Trading Controls
         self.session_start_time: float = 0.0
         active_sess = self.db.get_active_session() if self.db else None
-        if active_sess:
+        if active_sess and active_sess.get("status") == "ACTIVE":
             self.current_session_id = active_sess["session_id"]
             self.session_start_time = float(active_sess.get("start_time", 0.0))
+            self.is_trading_active = True
+            logger.info(f"🔄 Resumed active trading session: {self.current_session_id}")
+        elif active_sess and active_sess.get("status") == "PAUSED":
+            self.current_session_id = active_sess["session_id"]
+            self.session_start_time = float(active_sess.get("start_time", 0.0))
+            self.is_trading_active = False
+            logger.info(f"⏸ Loaded paused trading session: {self.current_session_id}")
         else:
             self.current_session_id = "STANDBY"
+            self.is_trading_active = False
 
     def start_session(
         self,

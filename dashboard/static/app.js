@@ -251,6 +251,14 @@ async function checkExistingAuth() {
             }
             connectWebSocket();
             loadHistoricalLogs();
+
+            // Immediate REST telemetry hydration on page load for zero-delay UI restoration
+            try {
+                fetch("/api/status", { headers: { "X-Auth-Token": authToken } })
+                    .then(r => r.json())
+                    .then(statusData => { if (statusData) updateDashboard(statusData); })
+                    .catch(() => {});
+            } catch (e) {}
         } else {
             authToken = "";
             localStorage.removeItem("poly_token");
@@ -684,12 +692,13 @@ function updateDashboard(data) {
         }
 
         if (btnOpenStart && btnPauseResume && btnStopSess) {
-            if (isTrading) {
+            const hasActiveSession = (sess.session_id && sess.session_id !== "STANDBY");
+            if (isTrading || (hasActiveSession && sess.status === "ACTIVE")) {
                 btnOpenStart.classList.add("hidden");
                 btnPauseResume.classList.remove("hidden");
                 btnStopSess.classList.remove("hidden");
                 if (textPR) textPR.textContent = "Pause";
-            } else if (sess.status === "PAUSED") {
+            } else if (hasActiveSession && sess.status === "PAUSED") {
                 btnOpenStart.classList.remove("hidden");
                 btnOpenStart.innerHTML = `<i data-lucide="plus" class="icon-xs"></i> New Run`;
                 btnPauseResume.classList.remove("hidden");
@@ -701,6 +710,7 @@ function updateDashboard(data) {
                 btnPauseResume.classList.add("hidden");
                 btnStopSess.classList.add("hidden");
             }
+            refreshIcons();
         }
     }
 
