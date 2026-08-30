@@ -508,6 +508,15 @@ class PolymarketQuantEngine:
 
 
 def run():
+    # Ultra-Low Latency Linux event loop optimization (Debian/Ubuntu)
+    if sys.platform != "win32":
+        try:
+            import uvloop
+            uvloop.install()
+            logger.info("⚡ [HIGH-PERFORMANCE EVENT LOOP] uvloop active.")
+        except ImportError:
+            pass
+
     config = BotConfig()
     engine = PolymarketQuantEngine(config)
 
