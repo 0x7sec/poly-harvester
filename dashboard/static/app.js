@@ -9,7 +9,7 @@ let reconnectTimer = null;
 let lastPingTime = 0;
 let latency = 0;
 let lastPrice = 0;
-let selectedSessionId = "ACTIVE";
+let selectedSessionId = localStorage.getItem("poly_selected_session") || "ACTIVE";
 let lastSeenTradeCount = -1;
 let lastSeenSetCount = -1;
 
@@ -1081,6 +1081,7 @@ if (tabBtnMCP) {
 }
 
 function switchTab(tab) {
+    try { localStorage.setItem("poly_active_tab", tab); } catch (e) {}
     if (tabBtnTrades) tabBtnTrades.classList.toggle("active", tab === "trades");
     if (tabBtnSets) tabBtnSets.classList.toggle("active", tab === "sets");
     if (tabBtnAnalytics) tabBtnAnalytics.classList.toggle("active", tab === "analytics");
@@ -1232,12 +1233,22 @@ async function loadTrades() {
 
 const tradeMarketFilter = document.getElementById("tradeMarketFilter");
 if (tradeMarketFilter) {
-    tradeMarketFilter.addEventListener("change", () => loadTrades());
+    const savedFilter = localStorage.getItem("poly_trade_filter");
+    if (savedFilter) tradeMarketFilter.value = savedFilter;
+    tradeMarketFilter.addEventListener("change", () => {
+        try { localStorage.setItem("poly_trade_filter", tradeMarketFilter.value); } catch (e) {}
+        loadTrades();
+    });
 }
 
 const tradeLimitSelect = document.getElementById("tradeLimitSelect");
 if (tradeLimitSelect) {
-    tradeLimitSelect.addEventListener("change", () => loadTrades());
+    const savedLimit = localStorage.getItem("poly_trade_limit");
+    if (savedLimit) tradeLimitSelect.value = savedLimit;
+    tradeLimitSelect.addEventListener("change", () => {
+        try { localStorage.setItem("poly_trade_limit", tradeLimitSelect.value); } catch (e) {}
+        loadTrades();
+    });
 }
 
 async function loadCompleteSets() {
@@ -1278,7 +1289,12 @@ async function loadCompleteSets() {
 
 const setsLimitSelect = document.getElementById("setsLimitSelect");
 if (setsLimitSelect) {
-    setsLimitSelect.addEventListener("change", () => loadCompleteSets());
+    const savedSetsLimit = localStorage.getItem("poly_sets_limit");
+    if (savedSetsLimit) setsLimitSelect.value = savedSetsLimit;
+    setsLimitSelect.addEventListener("change", () => {
+        try { localStorage.setItem("poly_sets_limit", setsLimitSelect.value); } catch (e) {}
+        loadCompleteSets();
+    });
 }
 
 async function loadAnalytics() {
@@ -1773,6 +1789,7 @@ if (btnCancelStartSession) {
 if (sessionHistorySelect) {
     sessionHistorySelect.addEventListener("change", (e) => {
         selectedSessionId = e.target.value;
+        try { localStorage.setItem("poly_selected_session", selectedSessionId); } catch (err) {}
         loadTrades();
         loadCompleteSets();
         loadAnalytics();
@@ -1929,6 +1946,30 @@ window.inspectMcpPayload = inspectMcpPayload;
 document.addEventListener("DOMContentLoaded", () => {
     refreshIcons();
     checkExistingAuth();
+
+    // Restore saved Timeframe selector
+    const selectTimeframe = document.getElementById("selectTimeframe");
+    if (selectTimeframe) {
+        const savedTf = localStorage.getItem("poly_timeframe");
+        if (savedTf) selectTimeframe.value = savedTf;
+        selectTimeframe.addEventListener("change", async (e) => {
+            const val = e.target.value;
+            try { localStorage.setItem("poly_timeframe", val); } catch (err) {}
+            try {
+                await fetch("/api/config/timeframe", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-Auth-Token": authToken },
+                    body: JSON.stringify({ timeframe: val })
+                });
+                showToast(`Target contract timeframe set to ${val}`, "info");
+            } catch (err) {}
+        });
+    }
+
+    // Restore active tab (Executed Trades, Complete Sets, Performance, MCP)
+    const savedTab = localStorage.getItem("poly_active_tab") || "trades";
+    switchTab(savedTab);
+    setSideNavActive(savedTab);
 
     // Auto-refresh active visible tables every 2.5s to ensure zero lag
     setInterval(() => {
