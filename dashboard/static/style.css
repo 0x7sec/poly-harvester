@@ -2365,3 +2365,27 @@ svg.lucide, [data-lucide] {
     max-width: 220px;
     vertical-align: middle;
 }
+
+/* Session Duration Timer Pill */
+.session-timer-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    font-size: 0.76rem;
+    white-space: nowrap;
+}
+
+.session-timer-label {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+.session-timer-val {
+    color: #fef08a;
+    font-weight: 800;
+}

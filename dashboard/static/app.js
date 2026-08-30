@@ -698,6 +698,20 @@ function updateDashboard(data) {
         const btnPauseResume = document.getElementById("btnPauseResumeSession");
         const btnStopSess = document.getElementById("btnStopCurrentSession");
         const textPR = document.getElementById("textPauseResume");
+        const timerVal = document.getElementById("sessionTimerVal");
+        const timerPill = document.getElementById("sessionTimerPill");
+
+        // Real-time Session Duration & Relative Start Time Update
+        if (timerVal) {
+            const durSec = (sess.duration_seconds !== undefined) 
+                ? sess.duration_seconds 
+                : (sess.start_time ? Math.max(0, Math.floor(Date.now() / 1000 - sess.start_time)) : 0);
+            timerVal.textContent = formatDuration(durSec);
+            if (timerPill && sess.start_time) {
+                const startTimeStr = new Date(sess.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                timerPill.title = `Session started ${formatRelativeTimeAgo(sess.start_time)} (at ${startTimeStr})`;
+            }
+        }
 
         if (statusDot && statusText) {
             if (isTrading) {
@@ -1075,6 +1089,31 @@ async function loadHistoricalLogs() {
     loadMCPData();
 }
 
+// ==================== Relative Time & Duration Formatters ====================
+function formatDuration(seconds) {
+    if (!seconds || seconds <= 0) return "0m 00s";
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hrs > 0) {
+        return `${hrs}h ${mins.toString().padStart(2, '0')}m ${secs.toString().padStart(2, '0')}s`;
+    }
+    return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+}
+
+function formatRelativeTimeAgo(timestamp) {
+    if (!timestamp) return "";
+    const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
+    if (elapsed < 60) return "just now";
+    if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m ago`;
+    if (elapsed < 86400) {
+        const hrs = Math.floor(elapsed / 3600);
+        const mins = Math.floor((elapsed % 3600) / 60);
+        return `${hrs}h ${mins}m ago`;
+    }
+    return `${Math.floor(elapsed / 86400)}d ago`;
+}
+
 async function loadSessionList() {
     const select = document.getElementById("sessionHistorySelect");
     if (!select) return;
@@ -1089,14 +1128,21 @@ async function loadSessionList() {
             const active = data.active_session;
 
             let html = `
-                <option value="ACTIVE" ${selectedSessionId === 'ACTIVE' ? 'selected' : ''}>⚡ Current Active Session ${active ? '(' + active.session_id + ')' : '(Standby)'}</option>
+                <option value="ACTIVE" ${selectedSessionId === 'ACTIVE' ? 'selected' : ''}>⚡ Current Active Session ${active ? '(' + active.session_id + ' • ' + formatRelativeTimeAgo(active.start_time) + ')' : '(Standby)'}</option>
                 <option value="ALL" ${selectedSessionId === 'ALL' ? 'selected' : ''}>🌐 All-Time Aggregate History</option>
             `;
 
             sessions.forEach(s => {
                 const isAct = active && s.session_id === active.session_id;
                 const pnlStr = s.realized_pnl >= 0 ? `+$${s.realized_pnl.toFixed(2)}` : `-$${Math.abs(s.realized_pnl).toFixed(2)}`;
-                const label = `${isAct ? '🟢' : '📜'} ${s.name || s.session_id} (${s.mode} • PnL: ${pnlStr})`;
+                let dur = "";
+                if (s.end_time && s.start_time) {
+                    dur = ` • ${formatDuration(s.end_time - s.start_time)}`;
+                } else if (s.start_time) {
+                    dur = ` • ran ${formatDuration(Math.floor(Date.now() / 1000 - s.start_time))}`;
+                }
+                const ago = s.start_time ? ` (${formatRelativeTimeAgo(s.start_time)})` : "";
+                const label = `${isAct ? '🟢' : '📜'} ${s.name || s.session_id} (${s.mode}${dur} • PnL: ${pnlStr})${ago}`;
                 html += `<option value="${s.session_id}" ${selectedSessionId === s.session_id ? 'selected' : ''}>${label}</option>`;
             });
 

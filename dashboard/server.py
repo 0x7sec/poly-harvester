@@ -982,6 +982,7 @@ class DashboardServer:
                 "allocated_capital": getattr(self.engine.inventory, "allocated_capital", 300.0),
                 "order_size_shares": self.engine.config.order_size_shares,
                 "start_time": active_sess.get("start_time") if active_sess else None,
+                "duration_seconds": int(time.time() - (active_sess.get("start_time") or self._start_time)),
                 "status": "ACTIVE" if is_trading else ("PAUSED" if active_sess else "STANDBY"),
             },
             "binance": {
