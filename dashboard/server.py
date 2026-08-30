@@ -10,7 +10,10 @@ import logging
 import os
 import secrets
 import time
+import urllib.parse
+import urllib.request
 from typing import Optional, Tuple
+import aiohttp
 from aiohttp import web
 from mcp_server import PolyHarvesterMCPServer
 from models.polymarket_client import PolymarketManager
@@ -135,6 +138,7 @@ class DashboardServer:
         static_dir = os.path.join(os.path.dirname(__file__), "static")
         self.app.router.add_get("/", self._handle_index)
         self.app.router.add_get("/login", self._handle_login_page)
+        self.app.router.add_post("/login", self._handle_login)
         self.app.router.add_static("/static/", path=static_dir, name="static")
 
         # Authentication Endpoints
@@ -271,6 +275,55 @@ class DashboardServer:
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)}, status=400)
 
+    async def _verify_turnstile_token(self, secret_key: str, token: str, client_ip: str = "") -> Tuple[bool, str]:
+        """Verifies Turnstile captcha token against Cloudflare's siteverify endpoint."""
+        if not secret_key or not secret_key.strip():
+            return True, ""
+        if not token or not token.strip():
+            return False, "Missing Turnstile verification token."
+
+        payload = {
+            "secret": secret_key.strip(),
+            "response": token.strip(),
+        }
+        if client_ip and client_ip not in ("127.0.0.1", "localhost", "::1"):
+            payload["remoteip"] = client_ip
+
+        # 1. Try aiohttp POST with form data
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=4)) as session:
+                async with session.post("https://challenges.cloudflare.com/turnstile/v0/siteverify", data=payload) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("success"):
+                            return True, ""
+                        errs = data.get("error-codes", [])
+                        return False, f"Turnstile check rejected ({', '.join(errs) if errs else 'invalid token'})."
+        except Exception as e:
+            logger.warning(f"aiohttp Turnstile siteverify notice: {e}. Trying urllib fallback...")
+
+        # 2. Fallback using asyncio loop executor + urllib.request
+        try:
+            loop = asyncio.get_running_loop()
+            def _sync_post():
+                data_encoded = urllib.parse.urlencode(payload).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                    data=data_encoded,
+                    headers={"User-Agent": "Poly-Harvester/1.4", "Content-Type": "application/x-www-form-urlencoded"}
+                )
+                with urllib.request.urlopen(req, timeout=4) as res:
+                    return json.loads(res.read().decode("utf-8"))
+
+            res_data = await loop.run_in_executor(None, _sync_post)
+            if res_data.get("success"):
+                return True, ""
+            errs = res_data.get("error-codes", [])
+            return False, f"Turnstile check rejected ({', '.join(errs) if errs else 'invalid token'})."
+        except Exception as e:
+            logger.error(f"Turnstile fallback verification error: {e}")
+            return False, "Turnstile verification service temporarily unreachable. Please retry."
+
     async def _handle_login(self, request: web.Request):
         """Authenticates username and password with optional Cloudflare Turnstile CAPTCHA."""
         try:
@@ -289,33 +342,17 @@ class DashboardServer:
                             "error": "Cloudflare Turnstile verification required. Please complete the captcha.",
                         }, status=400)
 
-                    # Verify token with Cloudflare API
                     client_ip = self._get_client_ip(request)
-                    try:
-                        async with aiohttp.ClientSession() as session:
-                            async with session.post(
-                                "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-                                data={
-                                    "secret": t_cfg["secret_key"].strip(),
-                                    "response": cf_token,
-                                    "remoteip": client_ip,
-                                },
-                                timeout=aiohttp.ClientTimeout(total=5),
-                            ) as cf_resp:
-                                cf_data = await cf_resp.json()
-                                if not cf_data.get("success"):
-                                    err_codes = cf_data.get("error-codes", [])
-                                    logger.warning(f"Turnstile verification rejected for IP {client_ip}: {cf_data}")
-                                    return web.json_response({
-                                        "success": False,
-                                        "error": f"Cloudflare Turnstile verification failed ({', '.join(err_codes) if err_codes else 'invalid token'}). Please refresh and try again.",
-                                    }, status=403)
-                    except Exception as cf_err:
-                        logger.error(f"Error connecting to Cloudflare Turnstile verification endpoint: {cf_err}")
+                    ok, err_msg = await self._verify_turnstile_token(
+                        secret_key=t_cfg["secret_key"],
+                        token=cf_token,
+                        client_ip=client_ip,
+                    )
+                    if not ok:
                         return web.json_response({
                             "success": False,
-                            "error": f"Turnstile verification server unreachable: {cf_err}",
-                        }, status=502)
+                            "error": err_msg or "Cloudflare Turnstile verification failed. Please try again.",
+                        }, status=400)
 
             # 1. Database-backed authentication
             if hasattr(self.engine, "db") and self.engine.db:
