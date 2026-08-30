@@ -249,8 +249,9 @@ class Backtester:
                 result.down_wins += 1
 
             window_start_price = w[0][1]
-            # In-window momentum (fractional return over the window).
             window_end_price = w[-1][1]
+            # TRUE in-window return (used only to define the resolution outcome
+            # and the book's "efficient" price — NOT for the model's decision).
             in_window_ret = (window_end_price - window_start_price) / window_start_price if window_start_price > 0 else 0.0
 
             # The "true" fair probability of UP, derived from the in-window
@@ -258,13 +259,21 @@ class Backtester:
             # fractional return to a probability via a logistic.
             true_fair_up = 1.0 / (1.0 + math.exp(-max(-4, min(4, in_window_ret * 1000.0))))
 
-            # The bot's fair-value model estimate (using the in-window momentum).
+            # --- NO-LOOKAHEAD model decision ---
+            # A live model decides at a decision point (default: 50% through the
+            # window) using ONLY data up to that point. We use the return from
+            # the window start to the decision point as the momentum signal.
+            mid_idx = max(1, len(w) // 2)
+            decision_price = w[mid_idx][1]
+            decision_ts = w[mid_idx][0]
+            past_ret = (decision_price - window_start_price) / window_start_price if window_start_price > 0 else 0.0
+
             model_out = self.fvm.calculate_fair_probabilities(
                 spot_velocity=0.0,
-                spot_percent_return=in_window_ret,
+                spot_percent_return=past_ret,
                 polymarket_up_mid=0.50,
-                seconds_to_expiry=0.0,
-                now=w[-1][0],
+                seconds_to_expiry=float(len(w) - mid_idx),  # time remaining after decision
+                now=decision_ts,
             )
             q_up = model_out["q_up"]
 
@@ -297,13 +306,15 @@ class Backtester:
             residual_entry = book_up if residual_leg == "UP" else book_down
             if 0.05 <= residual_entry <= 0.95:
                 result.directional_trades += 1
+                # Entry fee (bps of notional) is paid when we take the residual.
+                entry_fee = self.order_size_shares * residual_entry * (self.fee_bps / 10000.0)
                 if residual_leg == outcome:
                     # Wins $1.00 per share at resolution.
-                    pnl = self.order_size_shares * (1.0 - residual_entry)
+                    pnl = self.order_size_shares * (1.0 - residual_entry) - entry_fee
                     result.directional_wins += 1
                 else:
                     # Loses the entry cost.
-                    pnl = -self.order_size_shares * residual_entry
+                    pnl = -self.order_size_shares * residual_entry - entry_fee
                 result.directional_profit += pnl
 
             # Track PnL and drawdown.
