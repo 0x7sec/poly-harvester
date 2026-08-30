@@ -144,12 +144,17 @@ class PolymarketQuantEngine:
             self.current_session_id = active_sess["session_id"]
             self.session_start_time = float(active_sess.get("start_time", 0.0))
             self.is_trading_active = True
-            logger.info(f"🔄 Resumed active trading session: {self.current_session_id}")
+            # Restore execution mode from the session so a LIVE session does not
+            # silently become PAPER after a restart (dry_run is the single source
+            # of truth for which engine runs).
+            self.config.dry_run = (str(active_sess.get("mode", "PAPER")).upper() != "LIVE")
+            logger.info(f"🔄 Resumed active trading session: {self.current_session_id} (mode={active_sess.get('mode')})")
         elif active_sess and active_sess.get("status") == "PAUSED":
             self.current_session_id = active_sess["session_id"]
             self.session_start_time = float(active_sess.get("start_time", 0.0))
             self.is_trading_active = False
-            logger.info(f"⏸ Loaded paused trading session: {self.current_session_id}")
+            self.config.dry_run = (str(active_sess.get("mode", "PAPER")).upper() != "LIVE")
+            logger.info(f"⏸ Loaded paused trading session: {self.current_session_id} (mode={active_sess.get('mode')})")
         else:
             self.current_session_id = "STANDBY"
             self.is_trading_active = False

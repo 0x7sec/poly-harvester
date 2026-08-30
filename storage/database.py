@@ -1168,6 +1168,26 @@ class DatabaseManager:
                 row = cursor.fetchone()
                 return dict(row) if row else None
 
+    def get_current_session(self) -> Optional[dict]:
+        """Returns the current session in either ACTIVE or PAUSED state.
+
+        Unlike get_active_session (which only matches status='ACTIVE'), this
+        also returns a PAUSED session so the dashboard can keep showing the
+        pause/resume/stop controls for a paused session across restarts.
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT * FROM trading_sessions
+                    WHERE status IN ('ACTIVE', 'PAUSED')
+                    ORDER BY id DESC LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
     # Alias for get_session_by_id
     get_session = get_session_by_id
 

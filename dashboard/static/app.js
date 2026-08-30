@@ -644,9 +644,16 @@ function updateDashboard(data) {
     if (data.session) {
         try {
             const sess = data.session;
-            const hasActiveSession = Boolean(sess.session_id && sess.session_id !== "STANDBY");
-            const isTrading = (sess.is_trading_active === true || sess.status === "ACTIVE") && hasActiveSession;
-            const isPaused = (sess.status === "PAUSED") && hasActiveSession;
+            // A session exists if it has a real id OR the server reports a
+            // non-standby status. This is resilient to a brief frame where the
+            // session_id is still "STANDBY" but the status is already ACTIVE/PAUSED.
+            const status = String(sess.status || "").toUpperCase();
+            const hasActiveSession = Boolean(
+                (sess.session_id && sess.session_id !== "STANDBY") ||
+                status === "ACTIVE" || status === "PAUSED"
+            );
+            const isTrading = (status === "ACTIVE" || sess.is_trading_active === true) && hasActiveSession;
+            const isPaused = status === "PAUSED" && hasActiveSession;
 
             const statusText = document.getElementById("sessionStatusText");
             const statusDot = document.getElementById("sessionStatusDot");
@@ -697,6 +704,7 @@ function updateDashboard(data) {
             }
 
             if (btnOpenStart && btnPauseResume && btnStopSess) {
+                const iconPR = document.getElementById("iconPauseResume");
                 if (isTrading) {
                     btnOpenStart.style.display = "none";
                     btnPauseResume.style.display = "inline-flex";
@@ -705,6 +713,7 @@ function updateDashboard(data) {
                     btnPauseResume.classList.remove("hidden");
                     btnStopSess.classList.remove("hidden");
                     if (textPR) textPR.textContent = "Pause";
+                    if (iconPR) iconPR.setAttribute("data-lucide", "pause");
                 } else if (isPaused) {
                     btnOpenStart.style.display = "inline-flex";
                     btnPauseResume.style.display = "inline-flex";
@@ -714,6 +723,7 @@ function updateDashboard(data) {
                     btnPauseResume.classList.remove("hidden");
                     btnStopSess.classList.remove("hidden");
                     if (textPR) textPR.textContent = "Resume";
+                    if (iconPR) iconPR.setAttribute("data-lucide", "play");
                 } else {
                     btnOpenStart.style.display = "inline-flex";
                     btnPauseResume.style.display = "none";
@@ -1780,8 +1790,9 @@ if (sessionHistorySelect) {
 
 if (btnPauseResumeSession) {
     btnPauseResumeSession.addEventListener("click", async () => {
-        const textPR = document.getElementById("textPauseResume");
-        const isCurrentlyPaused = textPR && textPR.textContent.trim() === "Resume";
+        // Rely on the server-authoritative status (synced from telemetry) rather
+        // than parsing the button label, which can desync after a refresh.
+        const isCurrentlyPaused = window.currentSessionStatus === "PAUSED";
         const endpoint = isCurrentlyPaused ? "/api/sessions/resume" : "/api/sessions/pause";
 
         try {

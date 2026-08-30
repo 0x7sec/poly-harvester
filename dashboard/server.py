@@ -636,7 +636,9 @@ class DashboardServer:
             return web.json_response({"error": "Unauthorized"}, status=401)
         limit = int(request.query.get("limit", 50))
         sessions = self.engine.db.list_sessions(limit=limit) if hasattr(self.engine, "db") and self.engine.db else []
-        active = self.engine.db.get_active_session() if hasattr(self.engine, "db") and self.engine.db else None
+        # Use get_current_session so a paused session still shows in the
+        # dropdown's "Current Active Session" slot after a restart.
+        active = self.engine.db.get_current_session() if hasattr(self.engine, "db") and self.engine.db else None
         return web.json_response({
             "sessions": sessions,
             "active_session": active,
@@ -1250,7 +1252,9 @@ class DashboardServer:
         # Safely record tick with time deduplication
         self.record_price_tick(bn_price, bn_vel)
 
-        active_sess = self.engine.db.get_active_session() if hasattr(self.engine, "db") and self.engine.db else None
+        # Use the current session (ACTIVE or PAUSED) so a paused session keeps
+        # its controls visible across engine restarts.
+        active_sess = self.engine.db.get_current_session() if hasattr(self.engine, "db") and self.engine.db else None
         current_sess_id = getattr(self.engine, "current_session_id", "STANDBY")
         is_trading = getattr(self.engine, "is_trading_active", False)
 
@@ -1271,11 +1275,21 @@ class DashboardServer:
                 "net_pnl": inv["net_pnl"],
             }
 
+        # Robust status derivation: a session present in the DB (ACTIVE or
+        # PAUSED) is never "STANDBY", regardless of the in-memory trading flag.
+        # This keeps pause/resume/stop controls visible after a page refresh.
         session_status = "STANDBY"
-        if active_sess and active_sess.get("status") == "ACTIVE" and current_sess_id != "STANDBY":
-            session_status = "ACTIVE" if is_trading else "PAUSED"
-        elif active_sess and active_sess.get("status") == "PAUSED" and current_sess_id != "STANDBY":
-            session_status = "PAUSED"
+        if active_sess and current_sess_id != "STANDBY":
+            db_status = str(active_sess.get("status", "")).upper()
+            if db_status == "PAUSED":
+                session_status = "PAUSED"
+            elif db_status == "ACTIVE":
+                # A live ACTIVE row means the engine is quoting; if the in-memory
+                # flag is momentarily False (e.g. mid-transition) still report
+                # ACTIVE so the UI doesn't flicker to STANDBY.
+                session_status = "ACTIVE"
+            else:
+                session_status = "ACTIVE" if is_trading else "PAUSED"
         elif is_trading and current_sess_id != "STANDBY":
             session_status = "ACTIVE"
 
