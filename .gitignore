@@ -32,3 +32,5 @@ data/cache/
 Thumbs.db
 
 
+mcp_x_server/
+node_modules/
