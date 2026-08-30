@@ -1109,6 +1109,11 @@ class DashboardServer:
         active_sess = self.engine.db.get_active_session() if hasattr(self.engine, "db") and self.engine.db else None
         current_sess_id = getattr(self.engine, "current_session_id", "STANDBY")
         is_trading = getattr(self.engine, "is_trading_active", False)
+        session_start = getattr(self.engine, "session_start_time", 0.0)
+        if not session_start and active_sess:
+            session_start = float(active_sess.get("start_time") or 0.0)
+
+        duration_sec = int(time.time() - session_start) if (session_start > 0) else 0
 
         sess_analytics = {}
         if hasattr(self.engine, "db") and self.engine.db:
@@ -1127,13 +1132,13 @@ class DashboardServer:
             "session": {
                 "session_id": current_sess_id,
                 "is_trading_active": is_trading,
-                "name": active_sess.get("name") if active_sess else "Standby (Not Trading)",
+                "name": active_sess.get("name") if active_sess else ("Active Session" if current_sess_id != "STANDBY" else "Standby (Not Trading)"),
                 "mode": active_sess.get("mode", "PAPER") if active_sess else ("PAPER" if self.engine.config.dry_run else "LIVE"),
                 "allocated_capital": getattr(self.engine.inventory, "allocated_capital", 300.0),
                 "order_size_shares": self.engine.config.order_size_shares,
-                "start_time": active_sess.get("start_time") if active_sess else None,
-                "duration_seconds": int(time.time() - (active_sess.get("start_time") or self._start_time)),
-                "status": "ACTIVE" if is_trading else ("PAUSED" if active_sess else "STANDBY"),
+                "start_time": session_start if session_start > 0 else None,
+                "duration_seconds": duration_sec,
+                "status": "ACTIVE" if is_trading else ("PAUSED" if (active_sess or current_sess_id != "STANDBY") else "STANDBY"),
             },
             "binance": {
                 "symbol": self.engine.config.binance_symbol,

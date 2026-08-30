@@ -644,14 +644,26 @@ function updateDashboard(data) {
         const timerPill = document.getElementById("sessionTimerPill");
 
         // Real-time Session Duration & Relative Start Time Update
+        window.currentSessionStartTime = sess.start_time;
+        window.isTradingActive = isTrading;
+        window.currentSessionStatus = sess.status;
+        window.currentSessionDuration = sess.duration_seconds || 0;
+
         if (timerVal) {
-            const durSec = (sess.duration_seconds !== undefined) 
-                ? sess.duration_seconds 
-                : (sess.start_time ? Math.max(0, Math.floor(Date.now() / 1000 - sess.start_time)) : 0);
-            timerVal.textContent = formatDuration(durSec);
-            if (timerPill && sess.start_time) {
-                const startTimeStr = new Date(sess.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                timerPill.title = `Session started ${formatRelativeTimeAgo(sess.start_time)} (at ${startTimeStr})`;
+            if (isTrading || sess.status === "PAUSED") {
+                const durSec = (sess.duration_seconds !== undefined && sess.duration_seconds > 0)
+                    ? sess.duration_seconds
+                    : (sess.start_time ? Math.max(0, Math.floor(Date.now() / 1000 - sess.start_time)) : 0);
+                timerVal.textContent = isTrading ? formatDuration(durSec) : `PAUSED (${formatDuration(durSec)})`;
+                if (timerPill && sess.start_time) {
+                    const startTimeStr = new Date(sess.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    timerPill.title = `Session started ${formatRelativeTimeAgo(sess.start_time)} (at ${startTimeStr})`;
+                }
+            } else {
+                timerVal.textContent = "STANDBY";
+                if (timerPill) {
+                    timerPill.title = "No active trading session running. Click Start Trading to begin.";
+                }
             }
         }
 
@@ -2115,4 +2127,13 @@ document.addEventListener("DOMContentLoaded", () => {
             loadCompleteSets();
         }
     }, 2500);
+
+    // Smooth 1-second live session timer ticker
+    setInterval(() => {
+        const timerVal = document.getElementById("sessionTimerVal");
+        if (timerVal && window.isTradingActive && window.currentSessionStartTime) {
+            const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - window.currentSessionStartTime));
+            timerVal.textContent = formatDuration(elapsed);
+        }
+    }, 1000);
 });

@@ -135,9 +135,11 @@ class PolymarketQuantEngine:
 
         # Session & Trading Controls (Default to STANDBY: Requires manual start from UI)
         self.is_trading_active: bool = False
+        self.session_start_time: float = 0.0
         active_sess = self.db.get_active_session() if self.db else None
         if active_sess:
             self.current_session_id = active_sess["session_id"]
+            self.session_start_time = float(active_sess.get("start_time", 0.0))
         else:
             self.current_session_id = "STANDBY"
 
@@ -178,6 +180,7 @@ class PolymarketQuantEngine:
         # Initialize inventory state fresh for this session
         self.inventory.reset_for_session(self.current_session_id, allocated_capital)
         self.is_trading_active = True
+        self.session_start_time = float(sess.get("start_time") or time.time())
         logger.info(f"🚀 Trading Session '{self.current_session_id}' STARTED. Mode: {mode.upper()}, Capital: ${allocated_capital:.2f}")
 
         if not is_paper:
@@ -233,6 +236,7 @@ class PolymarketQuantEngine:
         if self.db and self.current_session_id != "STANDBY":
             sess = self.db.stop_session(self.current_session_id)
         self.current_session_id = "STANDBY"
+        self.session_start_time = 0.0
         logger.info(f"⏹ Trading Session STOPPED and archived.")
         return sess
 
