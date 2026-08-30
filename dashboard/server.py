@@ -1118,6 +1118,8 @@ class DashboardServer:
 
             # Re-initialize SDK connections
             await self.poly_manager.initialize()
+            if hasattr(self.engine, "live_engine") and self.engine.live_engine:
+                await self.engine.live_engine.initialize()
 
             return web.json_response({
                 "status": "SUCCESS",
