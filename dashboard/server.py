@@ -1126,10 +1126,24 @@ class DashboardServer:
                 }
             },
             "security": [{"ApiKeyAuth": []}]
-        }
         return web.json_response(openapi_spec)
 
+    def record_price_tick(self, price: float, velocity: float):
+        """Safely records a price tick into the history buffer with 500ms deduplication."""
+        if price <= 0:
+            return
+        now = time.time()
+        if not self._price_history or (now - self._price_history[-1]["time"]) >= 0.5:
+            self._price_history.append({
+                "time": now,
+                "price": price,
+                "velocity": velocity
+            })
+
     async def _handle_websocket(self, request: web.Request):
+        if not self._verify_auth(request):
+            return web.Response(text="Unauthorized: Invalid or missing session token", status=401)
+
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         self.sockets.add(ws)
@@ -1154,29 +1168,15 @@ class DashboardServer:
         bn_price = self.engine.binance_feed.current_price
         bn_vel = self.engine.binance_feed.get_velocity()
 
-        if bn_price > 0:
-            self._price_history.append({
-                "time": time.time(),
-                "price": bn_price,
-                "velocity": bn_vel
-            })
+        # Safely record tick with time deduplication
+        self.record_price_tick(bn_price, bn_vel)
 
         active_sess = self.engine.db.get_active_session() if hasattr(self.engine, "db") and self.engine.db else None
         current_sess_id = getattr(self.engine, "current_session_id", "STANDBY")
         is_trading = getattr(self.engine, "is_trading_active", False)
 
-        # Auto-resynchronize engine state if SQLite has an active session
-        if active_sess and active_sess.get("status") in ("ACTIVE", "PAUSED"):
-            if current_sess_id == "STANDBY" or not hasattr(self.engine, "current_session_id"):
-                current_sess_id = active_sess["session_id"]
-                self.engine.current_session_id = current_sess_id
-                self.engine.session_start_time = float(active_sess.get("start_time") or 0.0)
-                if active_sess.get("status") == "ACTIVE":
-                    self.engine.is_trading_active = True
-                    is_trading = True
-
         session_start = getattr(self.engine, "session_start_time", 0.0)
-        if not session_start and active_sess:
+        if (not session_start or session_start <= 0) and active_sess:
             session_start = float(active_sess.get("start_time") or 0.0)
 
         duration_sec = int(time.time() - session_start) if (session_start > 0 and current_sess_id != "STANDBY") else 0

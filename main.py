@@ -3,6 +3,7 @@ Main Event Loop & Live Dashboard for Polymarket Quant Engine using Binance Direc
 """
 import asyncio
 import logging
+import secrets
 import signal
 import sys
 import time
@@ -174,7 +175,7 @@ class PolymarketQuantEngine:
             )
             self.current_session_id = sess["session_id"]
         else:
-            self.current_session_id = f"SESS-{int(time.time())}"
+            self.current_session_id = f"SESS-{int(time.time())}-{secrets.token_hex(2).upper()}"
             sess = {
                 "session_id": self.current_session_id,
                 "name": name or "Local Session",
@@ -251,6 +252,9 @@ class PolymarketQuantEngine:
         """Triggered whenever Binance sub-50ms spot tick arrives."""
         velocity = feed.get_velocity()
         pct_return = feed.get_percent_return()
+
+        if hasattr(self, "dashboard") and self.dashboard:
+            self.dashboard.record_price_tick(feed.current_price, velocity)
 
         # Calculate Bayesian fair implied probability
         up_mid = (self.polymarket_feed.up_best_bid + self.polymarket_feed.up_best_ask) / 2.0

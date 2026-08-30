@@ -165,6 +165,17 @@ class TestStorageAndRecovery(unittest.TestCase):
         self.assertEqual(updated["site_key"], "0x4AAAAAA_test_site_key")
         self.assertEqual(updated["secret_key"], "0x4AAAAAA_test_secret_key")
 
+    def test_rapid_session_creation_no_collision(self):
+        """Tests that rapid back-to-back session creation does not cause UNIQUE constraint collisions."""
+        sess1 = self.db.create_session(name="Run 1", mode="PAPER")
+        sess2 = self.db.create_session(name="Run 2", mode="PAPER")
+        sess3 = self.db.create_session(name="Run 3", mode="PAPER")
+
+        self.assertNotEqual(sess1["session_id"], sess2["session_id"])
+        self.assertNotEqual(sess2["session_id"], sess3["session_id"])
+        self.assertNotEqual(sess1["session_id"], sess3["session_id"])
+        self.assertEqual(sess3["status"], "ACTIVE")
+
 
 if __name__ == "__main__":
     unittest.main()

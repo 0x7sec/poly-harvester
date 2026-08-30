@@ -1042,7 +1042,8 @@ class DatabaseManager:
         now = time.time()
         time_iso = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
         sess_num = int(now) % 100000
-        sess_id = f"SESS-{time.strftime('%Y%m%d')}-{sess_num:05d}"
+        unique_suffix = secrets.token_hex(2).upper()
+        sess_id = f"SESS-{time.strftime('%Y%m%d')}-{sess_num:05d}-{unique_suffix}"
         display_name = name.strip() if name.strip() else f"Session #{sess_num:05d} ({mode.upper()})"
         cap = max(10.0, min(300.0, float(allocated_capital)))
         order_sz = max(1.0, min(100.0, float(order_size_shares)))
