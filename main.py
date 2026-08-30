@@ -523,6 +523,8 @@ class PolymarketQuantEngine:
             await self.live_engine.cancel_all_orders()
             await self.binance_feed.stop()
             await self.polymarket_feed.stop()
+            if hasattr(self, "dashboard") and self.dashboard:
+                await self.dashboard.stop()
             logger.info("Engine stopped safely.")
 
 

@@ -68,21 +68,24 @@ class PolymarketFeed:
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
 
     async def switch_timeframe(self, timeframe: str) -> bool:
-        """Dynamically switches between 5M, 15M, 1H, 24H contract timeframes."""
+        """Dynamically switches between 5M, 15M, 1H, 24H contract timeframes with clean socket reconnect."""
         self.target_timeframe = timeframe.upper().strip()
         logger.info(f"🔄 Switching target timeframe to: {self.target_timeframe}")
         success = await self.discover_active_crypto_market()
         if success:
+            # Clear old order book state to avoid stale quote contamination
+            self.up_bids = []
+            self.up_asks = []
+            self.down_bids = []
+            self.down_asks = []
             await self.fetch_clob_midpoints()
+
+            # Cleanly close existing WS so start() reconnects fresh with only new tokens
             if self._ws and not self._ws.closed:
                 try:
-                    sub_msg = {
-                        "type": "market",
-                        "assets_ids": [self.token_id_up, self.token_id_down],
-                    }
-                    await self._ws.send(json.dumps(sub_msg))
+                    await self._ws.close()
                 except Exception as exc:
-                    logger.debug(f"WS resubscribe error on timeframe switch: {exc}")
+                    logger.debug(f"WS close on timeframe switch: {exc}")
 
             if self.on_book_update_callback:
                 res = self.on_book_update_callback(self)
@@ -374,7 +377,7 @@ class PolymarketFeed:
                 # If we have valid tokens, connect to WebSocket
                 if self.token_id_up and self.token_id_down:
                     logger.info(f"Connecting to Polymarket CLOB WS for {self.market_title}...")
-                    async with websockets.connect(ws_url, ping_interval=20, ping_timeout=10) as ws:
+                    async with websockets.connect(ws_url, ping_interval=None) as ws:
                         self._ws = ws
 
                         sub_msg = {
@@ -410,7 +413,7 @@ class PolymarketFeed:
             try:
                 t0 = time.perf_counter()
                 pong_waiter = await ws.ping()
-                await asyncio.wait_for(pong_waiter, timeout=4.0)
+                await asyncio.wait_for(pong_waiter, timeout=8.0)
                 rtt = (time.perf_counter() - t0) * 1000.0
                 if rtt > 0:
                     self.latency_ms = round(rtt, 1)
@@ -422,7 +425,7 @@ class PolymarketFeed:
                     break
             except Exception:
                 pass
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(2.0)
 
     async def _handle_ws_message(self, raw_msg: str):
         """Processes Polymarket orderbook updates."""

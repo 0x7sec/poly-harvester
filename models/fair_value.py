@@ -8,7 +8,7 @@ import numpy as np
 class FairValueModel:
     """
     Estimates the fair implied probability q_UP and q_DOWN of a short-term binary contract
-    based on real-time spot price velocity from KuCoin.
+    based on real-time spot price velocity from Binance.
     """
 
     def __init__(self, momentum_sensitivity: float = 2.5, base_prior: float = 0.50):

@@ -35,6 +35,7 @@ class DashboardServer:
         self._start_time = time.time()
         self._mcp_server = PolyHarvesterMCPServer(self.engine)
         self._mcp_sse_sessions = {}
+        self._broadcast_task = None
 
         # Share the engine's Polymarket Manager instance if available
         if hasattr(self.engine, "poly_manager") and self.engine.poly_manager:
@@ -1149,18 +1150,52 @@ class DashboardServer:
         self.sockets.add(ws)
 
         try:
-            while not ws.closed:
-                payload = self._get_telemetry_payload()
-                if hasattr(self.engine, "cache") and self.engine.cache:
-                    self.engine.cache.set_telemetry(payload)
-                await ws.send_json(payload)
-                await asyncio.sleep(0.5)
+            # Send immediate initial telemetry snapshot
+            payload = self._get_telemetry_payload()
+            await ws.send_json(payload)
+
+            # Drain incoming websocket frames and keepalive pings
+            async for msg in ws:
+                if msg.type == web.WSMsgType.TEXT:
+                    if msg.data == "ping":
+                        await ws.send_str("pong")
+                elif msg.type in (web.WSMsgType.CLOSE, web.WSMsgType.ERROR):
+                    break
         except Exception as e:
             logger.debug(f"WebSocket closed or error: {e}")
         finally:
             self.sockets.discard(ws)
 
         return ws
+
+    async def _broadcast_loop(self):
+        """Central broadcast task that computes telemetry once every 500ms and broadcasts to all clients."""
+        while True:
+            try:
+                if self.sockets:
+                    payload = self._get_telemetry_payload()
+                    if hasattr(self.engine, "cache") and self.engine.cache:
+                        self.engine.cache.set_telemetry(payload)
+
+                    dead_sockets = []
+                    for ws in list(self.sockets):
+                        if ws.closed:
+                            dead_sockets.append(ws)
+                            continue
+                        try:
+                            await ws.send_json(payload)
+                        except Exception:
+                            dead_sockets.append(ws)
+
+                    for ws in dead_sockets:
+                        self.sockets.discard(ws)
+
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Broadcast loop error: {e}")
+                await asyncio.sleep(0.5)
 
     def _get_telemetry_payload(self) -> dict:
         inv = self.engine.inventory.get_summary()
@@ -1369,6 +1404,22 @@ class DashboardServer:
     async def start(self):
         runner = web.AppRunner(self.app)
         await runner.setup()
+        self._runner = runner
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
+        self._broadcast_task = asyncio.create_task(self._broadcast_loop())
         logger.info(f"🚀 Secure Web Dashboard running at http://{self.host}:{self.port}/")
+
+    async def stop(self):
+        """Cleanly halts the dashboard server, closes active websockets, and cancels broadcast task."""
+        if self._broadcast_task:
+            self._broadcast_task.cancel()
+            self._broadcast_task = None
+        for ws in list(self.sockets):
+            try:
+                await ws.close()
+            except Exception:
+                pass
+        self.sockets.clear()
+        if hasattr(self, "_runner") and self._runner:
+            await self._runner.cleanup()
