@@ -14,12 +14,11 @@ let lastSeenTradeCount = -1;
 let lastSeenSetCount = -1;
 
 // DOM Elements
-const authModal = document.getElementById("authModal");
 const loginForm = document.getElementById("loginForm");
 const loginUsername = document.getElementById("loginUsername");
 const loginPassword = document.getElementById("loginPassword");
 const loginErrorMsg = document.getElementById("loginErrorMsg");
-const btnAutofillAdmin = document.getElementById("btnAutofillAdmin");
+const btnCloseLoginModal = document.getElementById("btnCloseLoginModal");
 const currentUserDisplay = document.getElementById("currentUserDisplay");
 const btnLogout = document.getElementById("btnLogout");
 const btnOpenProfileModal = document.getElementById("btnOpenProfileModal");
@@ -2053,6 +2052,10 @@ function showLoginModal() {
 
 function hideLoginModal() {
     if (loginModal) loginModal.classList.add("hidden");
+}
+
+if (btnCloseLoginModal) {
+    btnCloseLoginModal.addEventListener("click", hideLoginModal);
 }
 
 if (loginForm) {

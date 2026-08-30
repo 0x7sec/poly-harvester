@@ -709,57 +709,6 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
         </div>
     </div>
 
-    <!-- Login Authentication Modal -->
-    <div class="modal-overlay" id="authModal">
-        <div class="modal-card glass-panel">
-            <div class="modal-header">
-                <div class="brand-group">
-                    <div class="modal-icon-badge">
-                        <i data-lucide="shield-check" class="icon-lg text-cyan"></i>
-                    </div>
-                    <div>
-                        <h3>QUANT CONTROL AUTHENTICATION</h3>
-                        <p class="modal-subtitle">Log in with your credentials to control the trading engine.</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Seeded Default Creds Banner -->
-            <div class="demo-creds-banner">
-                <span class="creds-label">Default Admin:</span>
-                <code class="creds-code">admin / polyharvester2026</code>
-                <button type="button" class="btn-autofill" id="btnAutofillAdmin">
-                    <i data-lucide="zap" class="icon-xs"></i>
-                    <span>Autofill</span>
-                </button>
-            </div>
-
-            <form id="loginForm" class="login-form">
-                <div class="form-group">
-                    <label for="loginUsername">Username</label>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="user" class="input-icon"></i>
-                        <input type="text" id="loginUsername" placeholder="Enter username..." value="admin" required autocomplete="username">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label for="loginPassword">Password</label>
-                    <div class="input-icon-wrapper">
-                        <i data-lucide="key-round" class="input-icon"></i>
-                        <input type="password" id="loginPassword" placeholder="Enter password..." value="polyharvester2026" required autocomplete="current-password">
-                    </div>
-                </div>
-                <div class="login-error-msg hidden font-mono" id="loginErrorMsg"></div>
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-primary btn-block" id="btnLoginSubmit">
-                        <i data-lucide="log-in" class="icon-sm"></i>
-                        <span>LOG IN & CONNECT</span>
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <!-- Profile & Security Settings Modal -->
     <div class="modal-overlay hidden" id="profileModal">
         <div class="modal-card glass-panel">
@@ -1205,17 +1154,20 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
                         <p class="modal-subtitle font-mono">Poly-Harvester Autonomous Quant Engine</p>
                     </div>
                 </div>
+                <button class="btn-modal-close" id="btnCloseLoginModal" type="button" title="Close Modal">
+                    <i data-lucide="x" class="icon-md"></i>
+                </button>
             </div>
 
             <form id="loginForm" class="modal-body">
                 <div class="form-group">
                     <label for="loginUsername">Username:</label>
-                    <input type="text" id="loginUsername" placeholder="admin" class="font-mono" value="admin" required>
+                    <input type="text" id="loginUsername" placeholder="Enter username..." class="font-mono" required autocomplete="username">
                 </div>
 
                 <div class="form-group">
                     <label for="loginPassword">Password:</label>
-                    <input type="password" id="loginPassword" placeholder="••••••••" class="font-mono" required>
+                    <input type="password" id="loginPassword" placeholder="Enter password..." class="font-mono" required autocomplete="current-password">
                 </div>
 
                 <!-- Cloudflare Turnstile Dynamic Widget Container -->
