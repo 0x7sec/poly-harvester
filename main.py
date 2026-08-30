@@ -132,25 +132,13 @@ class PolymarketQuantEngine:
         self.last_fill_event: str = "None"
         self._running: bool = False
 
-        # Session & Trading Controls (Auto-active on startup)
+        # Session & Trading Controls (Default to STANDBY: Requires manual start from UI)
+        self.is_trading_active: bool = False
         active_sess = self.db.get_active_session() if self.db else None
-        if active_sess and active_sess.get("status") == "ACTIVE":
+        if active_sess:
             self.current_session_id = active_sess["session_id"]
-            self.is_trading_active = True
         else:
-            self.current_session_id = f"SESS-{int(time.time())}"
-            self.is_trading_active = True
-            if self.db:
-                try:
-                    self.db.create_session(
-                        name="Auto-Start Session",
-                        mode="PAPER" if config.dry_run else "LIVE",
-                        allocated_capital=300.0,
-                        order_size_shares=config.order_size_shares,
-                        notes="Auto-created on engine startup",
-                    )
-                except Exception:
-                    pass
+            self.current_session_id = "STANDBY"
 
     def start_session(
         self,

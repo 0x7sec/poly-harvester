@@ -1079,6 +1079,18 @@ class DatabaseManager:
 
         return self.get_session_by_id(target_sess)
 
+    def stop_all_active_sessions(self):
+        """Archives any lingering active sessions on fresh startup."""
+        now = time.time()
+        time_iso = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE trading_sessions SET status = 'STOPPED', end_time = ?, end_time_iso = ? WHERE status IN ('ACTIVE', 'PAUSED')",
+                    (now, time_iso),
+                )
+                conn.commit()
+
     def pause_session(self, session_id: Optional[str] = None) -> Optional[dict]:
         """Sets an active session to PAUSED state."""
         target_sess = session_id or (self.get_active_session() or {}).get("session_id")
