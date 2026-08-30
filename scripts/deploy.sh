@@ -6,6 +6,14 @@
 set -e
 
 INSTALL_DIR="/opt/poly-harvester"
+
+# If first-time deployment, run full setup provisioner automatically
+if [ ! -d "$INSTALL_DIR" ] || [ ! -d "$INSTALL_DIR/venv" ]; then
+    echo "⚠️ Project directory or virtualenv not found. Running automated full VPS provisioner..."
+    curl -sSL https://raw.githubusercontent.com/0x7sec/poly-harvester/main/scripts/setup_vps.sh | bash
+    exit 0
+fi
+
 cd $INSTALL_DIR
 
 echo "🔄 Pulling latest code from origin/main..."

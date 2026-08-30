@@ -47,4 +47,9 @@ jobs:
           port: ${{ secrets.VPS_PORT || 22 }}
           script_stop: true
           script: |
-            sudo bash /opt/poly-harvester/scripts/deploy.sh
+            if [ -f /opt/poly-harvester/scripts/deploy.sh ]; then
+              sudo bash /opt/poly-harvester/scripts/deploy.sh
+            else
+              echo "🚀 First-time VPS bootstrap detected! Running automated provisioner..."
+              curl -sSL https://raw.githubusercontent.com/0x7sec/poly-harvester/main/scripts/setup_vps.sh | sudo bash
+            fi
