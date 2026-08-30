@@ -8,18 +8,19 @@
 #   4. Nginx Reverse Proxy with WebSocket & SSL Support
 # ==============================================================================
 
-set -e
+export DEBIAN_FRONTEND=noninteractive
 
 if [ "$EUID" -ne 0 ]; then
-  echo "❌ Please run as root: sudo bash scripts/setup_vps.sh"
+  echo "❌ Please run as root (or with sudo): bash scripts/setup_vps.sh"
   exit 1
 fi
 
 echo "🚀 Starting Poly-Harvester Debian VPS Setup..."
 
-# 1. Update system packages
-apt-get update && apt-get upgrade -y
-apt-get install -y \
+# 1. Update system packages non-interactively
+apt-get update -y
+apt-get install -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+  sudo \
   python3 \
   python3-venv \
   python3-dev \
