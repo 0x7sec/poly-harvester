@@ -1109,11 +1109,22 @@ class DashboardServer:
         active_sess = self.engine.db.get_active_session() if hasattr(self.engine, "db") and self.engine.db else None
         current_sess_id = getattr(self.engine, "current_session_id", "STANDBY")
         is_trading = getattr(self.engine, "is_trading_active", False)
+
+        # Auto-resynchronize engine state if SQLite has an active session
+        if active_sess and active_sess.get("status") in ("ACTIVE", "PAUSED"):
+            if current_sess_id == "STANDBY" or not hasattr(self.engine, "current_session_id"):
+                current_sess_id = active_sess["session_id"]
+                self.engine.current_session_id = current_sess_id
+                self.engine.session_start_time = float(active_sess.get("start_time") or 0.0)
+                if active_sess.get("status") == "ACTIVE":
+                    self.engine.is_trading_active = True
+                    is_trading = True
+
         session_start = getattr(self.engine, "session_start_time", 0.0)
         if not session_start and active_sess:
             session_start = float(active_sess.get("start_time") or 0.0)
 
-        duration_sec = int(time.time() - session_start) if (session_start > 0) else 0
+        duration_sec = int(time.time() - session_start) if (session_start > 0 and current_sess_id != "STANDBY") else 0
 
         sess_analytics = {}
         if hasattr(self.engine, "db") and self.engine.db:
@@ -1126,19 +1137,27 @@ class DashboardServer:
                 "net_pnl": inv["net_pnl"],
             }
 
+        session_status = "STANDBY"
+        if active_sess and active_sess.get("status") == "ACTIVE" and current_sess_id != "STANDBY":
+            session_status = "ACTIVE" if is_trading else "PAUSED"
+        elif active_sess and active_sess.get("status") == "PAUSED" and current_sess_id != "STANDBY":
+            session_status = "PAUSED"
+        elif is_trading and current_sess_id != "STANDBY":
+            session_status = "ACTIVE"
+
         return {
             "timestamp": time.time(),
             "uptime_seconds": int(time.time() - self._start_time),
             "session": {
                 "session_id": current_sess_id,
-                "is_trading_active": is_trading,
+                "is_trading_active": (session_status == "ACTIVE"),
                 "name": active_sess.get("name") if active_sess else ("Active Session" if current_sess_id != "STANDBY" else "Standby (Not Trading)"),
                 "mode": active_sess.get("mode", "PAPER") if active_sess else ("PAPER" if self.engine.config.dry_run else "LIVE"),
                 "allocated_capital": getattr(self.engine.inventory, "allocated_capital", 300.0),
                 "order_size_shares": self.engine.config.order_size_shares,
-                "start_time": session_start if session_start > 0 else None,
+                "start_time": session_start if (session_start > 0 and current_sess_id != "STANDBY") else None,
                 "duration_seconds": duration_sec,
-                "status": "ACTIVE" if is_trading else ("PAUSED" if (active_sess or current_sess_id != "STANDBY") else "STANDBY"),
+                "status": session_status,
             },
             "binance": {
                 "symbol": self.engine.config.binance_symbol,

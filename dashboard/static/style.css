@@ -2476,6 +2476,13 @@ svg.lucide, [data-lucide] {
     font-weight: 800;
 }
 
+/* Session Action Button Group */
+.session-btn-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 /* Cloudflare Turnstile & Login Modal Styling */
 .modal-sm {
     max-width: 440px;

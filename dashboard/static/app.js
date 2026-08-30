@@ -12,6 +12,8 @@ let lastPrice = 0;
 let selectedSessionId = localStorage.getItem("poly_selected_session") || "ACTIVE";
 let lastSeenTradeCount = -1;
 let lastSeenSetCount = -1;
+let clientTimerBaseDuration = 0;
+let clientTimerBaseLocalTime = 0;
 
 // DOM Elements
 const loginForm = document.getElementById("loginForm");
@@ -640,77 +642,94 @@ function updateDashboard(data) {
 
     // 8. Session State & Top-Bar Session Controls
     if (data.session) {
-        const sess = data.session;
-        const isTrading = sess.is_trading_active === true;
-        const statusText = document.getElementById("sessionStatusText");
-        const statusDot = document.getElementById("sessionStatusDot");
-        const btnOpenStart = document.getElementById("btnOpenStartSession");
-        const btnPauseResume = document.getElementById("btnPauseResumeSession");
-        const btnStopSess = document.getElementById("btnStopCurrentSession");
-        const textPR = document.getElementById("textPauseResume");
-        const timerVal = document.getElementById("sessionTimerVal");
-        const timerPill = document.getElementById("sessionTimerPill");
+        try {
+            const sess = data.session;
+            const hasActiveSession = Boolean(sess.session_id && sess.session_id !== "STANDBY");
+            const isTrading = (sess.is_trading_active === true || sess.status === "ACTIVE") && hasActiveSession;
+            const isPaused = (sess.status === "PAUSED") && hasActiveSession;
 
-        // Real-time Session Duration & Relative Start Time Update
-        window.currentSessionStartTime = sess.start_time;
-        window.isTradingActive = isTrading;
-        window.currentSessionStatus = sess.status;
-        window.currentSessionDuration = sess.duration_seconds || 0;
+            const statusText = document.getElementById("sessionStatusText");
+            const statusDot = document.getElementById("sessionStatusDot");
+            const btnOpenStart = document.getElementById("btnOpenStartSession");
+            const btnPauseResume = document.getElementById("btnPauseResumeSession");
+            const btnStopSess = document.getElementById("btnStopCurrentSession");
+            const textPR = document.getElementById("textPauseResume");
+            const timerVal = document.getElementById("sessionTimerVal");
+            const timerPill = document.getElementById("sessionTimerPill");
 
-        if (timerVal) {
-            if (isTrading || sess.status === "PAUSED") {
-                const durSec = (sess.duration_seconds !== undefined && sess.duration_seconds > 0)
-                    ? sess.duration_seconds
-                    : (sess.start_time ? Math.max(0, Math.floor(Date.now() / 1000 - sess.start_time)) : 0);
-                timerVal.textContent = isTrading ? formatDuration(durSec) : `PAUSED (${formatDuration(durSec)})`;
-                if (timerPill && sess.start_time) {
-                    const startTimeStr = new Date(sess.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    timerPill.title = `Session started ${formatRelativeTimeAgo(sess.start_time)} (at ${startTimeStr})`;
+            // Real-time Session Duration & Anchor Synchronization
+            window.currentSessionStartTime = sess.start_time;
+            window.isTradingActive = isTrading;
+            window.currentSessionStatus = sess.status;
+
+            if (sess.duration_seconds !== undefined) {
+                clientTimerBaseDuration = Math.max(0, Number(sess.duration_seconds));
+                clientTimerBaseLocalTime = Date.now();
+            }
+
+            if (timerVal) {
+                if (isTrading || isPaused) {
+                    const durSec = clientTimerBaseDuration;
+                    timerVal.textContent = isTrading ? formatDuration(durSec) : `PAUSED (${formatDuration(durSec)})`;
+                    if (timerPill && sess.start_time) {
+                        const startTimeStr = new Date(sess.start_time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        timerPill.title = `Session started ${formatRelativeTimeAgo(sess.start_time)} (at ${startTimeStr})`;
+                    }
+                } else {
+                    timerVal.textContent = "STANDBY";
+                    if (timerPill) {
+                        timerPill.title = "No active trading session running. Click Start Trading to begin.";
+                    }
                 }
-            } else {
-                timerVal.textContent = "STANDBY";
-                if (timerPill) {
-                    timerPill.title = "No active trading session running. Click Start Trading to begin.";
+            }
+
+            if (statusDot && statusText) {
+                if (isTrading) {
+                    statusDot.className = "session-dot dot-active";
+                    statusText.textContent = `LIVE (${sess.session_id})`;
+                    statusText.style.color = "var(--accent-green)";
+                } else if (isPaused) {
+                    statusDot.className = "session-dot dot-standby";
+                    statusText.textContent = `PAUSED (${sess.session_id})`;
+                    statusText.style.color = "var(--accent-yellow)";
+                } else {
+                    statusDot.className = "session-dot dot-stopped";
+                    statusText.textContent = "STANDBY";
+                    statusText.style.color = "var(--text-muted)";
                 }
             }
-        }
 
-        if (statusDot && statusText) {
-            if (isTrading) {
-                statusDot.className = "session-dot dot-active";
-                statusText.textContent = `LIVE (${sess.session_id})`;
-                statusText.style.color = "var(--accent-green)";
-            } else if (sess.status === "PAUSED") {
-                statusDot.className = "session-dot dot-standby";
-                statusText.textContent = `PAUSED (${sess.session_id})`;
-                statusText.style.color = "var(--accent-yellow)";
-            } else {
-                statusDot.className = "session-dot dot-stopped";
-                statusText.textContent = "STANDBY";
-                statusText.style.color = "var(--text-muted)";
+            if (btnOpenStart && btnPauseResume && btnStopSess) {
+                if (isTrading) {
+                    btnOpenStart.style.display = "none";
+                    btnPauseResume.style.display = "inline-flex";
+                    btnStopSess.style.display = "inline-flex";
+                    btnOpenStart.classList.add("hidden");
+                    btnPauseResume.classList.remove("hidden");
+                    btnStopSess.classList.remove("hidden");
+                    if (textPR) textPR.textContent = "Pause";
+                } else if (isPaused) {
+                    btnOpenStart.style.display = "inline-flex";
+                    btnPauseResume.style.display = "inline-flex";
+                    btnStopSess.style.display = "inline-flex";
+                    btnOpenStart.classList.remove("hidden");
+                    btnOpenStart.innerHTML = `<i data-lucide="plus" class="icon-xs"></i> New Run`;
+                    btnPauseResume.classList.remove("hidden");
+                    btnStopSess.classList.remove("hidden");
+                    if (textPR) textPR.textContent = "Resume";
+                } else {
+                    btnOpenStart.style.display = "inline-flex";
+                    btnPauseResume.style.display = "none";
+                    btnStopSess.style.display = "none";
+                    btnOpenStart.classList.remove("hidden");
+                    btnOpenStart.innerHTML = `<i data-lucide="play" class="icon-xs"></i> Start Trading`;
+                    btnPauseResume.classList.add("hidden");
+                    btnStopSess.classList.add("hidden");
+                }
+                refreshIcons();
             }
-        }
-
-        if (btnOpenStart && btnPauseResume && btnStopSess) {
-            const hasActiveSession = (sess.session_id && sess.session_id !== "STANDBY");
-            if (isTrading || (hasActiveSession && sess.status === "ACTIVE")) {
-                btnOpenStart.classList.add("hidden");
-                btnPauseResume.classList.remove("hidden");
-                btnStopSess.classList.remove("hidden");
-                if (textPR) textPR.textContent = "Pause";
-            } else if (hasActiveSession && sess.status === "PAUSED") {
-                btnOpenStart.classList.remove("hidden");
-                btnOpenStart.innerHTML = `<i data-lucide="plus" class="icon-xs"></i> New Run`;
-                btnPauseResume.classList.remove("hidden");
-                btnStopSess.classList.remove("hidden");
-                if (textPR) textPR.textContent = "Resume";
-            } else {
-                btnOpenStart.classList.remove("hidden");
-                btnOpenStart.innerHTML = `<i data-lucide="play" class="icon-xs"></i> Start Trading`;
-                btnPauseResume.classList.add("hidden");
-                btnStopSess.classList.add("hidden");
-            }
-            refreshIcons();
+        } catch (sessErr) {
+            console.error("Session update error:", sessErr);
         }
     }
 
@@ -2138,12 +2157,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }, 2500);
 
-    // Smooth 1-second live session timer ticker
+    // Smooth 1-second live session timer ticker anchored to server duration
     setInterval(() => {
         const timerVal = document.getElementById("sessionTimerVal");
-        if (timerVal && window.isTradingActive && window.currentSessionStartTime) {
-            const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - window.currentSessionStartTime));
-            timerVal.textContent = formatDuration(elapsed);
+        if (timerVal && window.isTradingActive && clientTimerBaseLocalTime > 0) {
+            const localElapsedDelta = Math.floor((Date.now() - clientTimerBaseLocalTime) / 1000);
+            const totalDuration = clientTimerBaseDuration + localElapsedDelta;
+            timerVal.textContent = formatDuration(totalDuration);
         }
     }, 1000);
 });
