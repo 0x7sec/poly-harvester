@@ -127,6 +127,7 @@ class DashboardServer:
             return peer[0]
         return "127.0.0.1"
 
+    def _setup_routes(self):
         # Static Assets & Pages
         static_dir = os.path.join(os.path.dirname(__file__), "static")
         self.app.router.add_get("/", self._handle_index)
