@@ -243,18 +243,36 @@ class PolymarketManager:
         await self.refresh_geoblock()
 
         # Initialize Secure Client if credentials provided
-        if self.private_key and self.wallet_address:
-            try:
-                self._secure_client = await AsyncSecureClient.create(
-                    private_key=self.private_key,
-                    wallet=self.wallet_address,
-                )
-                logger.info(f"Polymarket AsyncSecureClient initialized for wallet: {self.wallet_address[:8]}...")
-                await self.refresh_balance()
-            except Exception as e:
-                logger.warning(f"Could not initialize AsyncSecureClient: {e}")
-        else:
-            logger.info("Polymarket credentials not configured; running in Public/Simulation mode.")
+        await self.ensure_secure_client()
+
+    async def ensure_secure_client(self) -> bool:
+        """Ensures AsyncSecureClient is created and authenticated."""
+        if self._secure_client:
+            return True
+
+        if self.private_key:
+            if not self.wallet_address:
+                try:
+                    from eth_account import Account
+                    self.wallet_address = Account.from_key(self.private_key).address
+                except Exception:
+                    pass
+
+            if self.wallet_address:
+                try:
+                    self._secure_client = await AsyncSecureClient.create(
+                        private_key=self.private_key,
+                        wallet=self.wallet_address,
+                    )
+                    logger.info(f"Polymarket AsyncSecureClient initialized for wallet: {self.wallet_address[:8]}...")
+                    await self.refresh_balance()
+                    return True
+                except Exception as e:
+                    logger.warning(f"Could not initialize AsyncSecureClient: {e}")
+                    return False
+
+        logger.debug("Polymarket credentials not configured; running in Public/Simulation mode.")
+        return False
 
     def update_credentials(
         self,
@@ -277,6 +295,13 @@ class PolymarketManager:
         if proxy_url is not None:
             self.proxy_url = proxy_url.strip() if proxy_url else None
         self._secure_client = None
+        # Trigger async client refresh in background task
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(self.ensure_secure_client())
+        except Exception:
+            pass
 
     async def refresh_geoblock(self) -> Dict[str, Any]:
         """Refreshes geographic restriction status."""

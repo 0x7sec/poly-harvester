@@ -107,6 +107,7 @@ class PolymarketQuantEngine:
             config=self.config,
             inventory=self.inventory,
             poly_manager=self.poly_manager,
+            db=self.db,
         )
 
         # 1. Primary Reference Feed: Binance Direct High-Speed Stream
@@ -178,12 +179,29 @@ class PolymarketQuantEngine:
         self.inventory.reset_for_session(self.current_session_id, allocated_capital)
         self.is_trading_active = True
         logger.info(f"🚀 Trading Session '{self.current_session_id}' STARTED. Mode: {mode.upper()}, Capital: ${allocated_capital:.2f}")
+
+        if not is_paper:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self.live_engine.initialize())
+            except Exception:
+                pass
+
         return sess
 
     def pause_trading(self) -> Optional[dict]:
         """Pauses active quoting and fills."""
         self.is_trading_active = False
         self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+        if not self.config.dry_run:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self.live_engine.cancel_all_orders())
+            except Exception:
+                pass
+
         sess = None
         if self.db and self.current_session_id != "STANDBY":
             sess = self.db.pause_session(self.current_session_id)
@@ -203,6 +221,14 @@ class PolymarketQuantEngine:
         """Stops and archives the current session."""
         self.is_trading_active = False
         self.paper_engine.update_quotes(0.0, 0.0, allow_up=False, allow_down=False)
+        if not self.config.dry_run:
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self.live_engine.cancel_all_orders())
+            except Exception:
+                pass
+
         sess = None
         if self.db and self.current_session_id != "STANDBY":
             sess = self.db.stop_session(self.current_session_id)
@@ -240,12 +266,19 @@ class PolymarketQuantEngine:
                         self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
                         inv_summary = self.inventory.get_summary()
                         self.recorder.log_trade(fill, inv_summary)
+            else:
+                filled = await self.live_engine.check_fills(feed=self.polymarket_feed)
+                if filled:
+                    for fill in filled:
+                        self.last_fill_event = f"LIVE {fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
+                        inv_summary = self.inventory.get_summary()
+                        self.recorder.log_trade(fill, inv_summary)
 
         await self._evaluate_and_quote()
 
     async def _on_polymarket_book(self, feed: PolymarketFeed):
         """Triggered whenever Polymarket order book updates."""
-        # 1. Check for fills in paper engine ONLY if trading is actively enabled
+        # 1. Check for fills ONLY if trading is actively enabled
         if self.is_trading_active and not self.inventory.is_stop_loss_triggered:
             if self.config.dry_run:
                 filled = self.paper_engine.check_fills(
@@ -257,10 +290,17 @@ class PolymarketQuantEngine:
                     down_best_bid=feed.down_best_bid,
                     feed=feed,
                 )
-
                 if filled:
                     for fill in filled:
                         self.last_fill_event = f"{fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
+                        inv_summary = self.inventory.get_summary()
+                        self.recorder.log_trade(fill, inv_summary)
+            else:
+                # Live Trading Fill Reconciliation
+                filled = await self.live_engine.check_fills(feed=feed)
+                if filled:
+                    for fill in filled:
+                        self.last_fill_event = f"LIVE {fill['side']} @ ${fill['price']:.2f} ({fill['shares']:.1f} shs)"
                         inv_summary = self.inventory.get_summary()
                         self.recorder.log_trade(fill, inv_summary)
 
@@ -279,10 +319,13 @@ class PolymarketQuantEngine:
         if hasattr(self, "inventory") and self.inventory:
             self.inventory.settle_contract_round(winning_side=winning_side, market_title=old_title)
         
-        # 2. Reset active paper engine in-flight orders
+        # 2. Reset active paper engine & live engine in-flight orders
         if hasattr(self, "paper_engine") and self.paper_engine:
             self.paper_engine.active_order_up = None
             self.paper_engine.active_order_down = None
+        if hasattr(self, "live_engine") and self.live_engine:
+            self.live_engine.active_order_up = None
+            self.live_engine.active_order_down = None
 
     async def _evaluate_and_quote(self):
         """Calculates optimal bids enforcing cost ceilings, inventory caps, and daily stop-loss."""
@@ -332,6 +375,11 @@ class PolymarketQuantEngine:
                 quote_down=self.current_quotes["quote_down"],
                 allow_up=allow_up,
                 allow_down=allow_down,
+                token_id_up=self.polymarket_feed.token_id_up,
+                token_id_down=self.polymarket_feed.token_id_down,
+                condition_id=self.polymarket_feed.condition_id,
+                market_title=self.polymarket_feed.market_title,
+                market_slug=self.polymarket_feed.market_slug,
             )
         else:
             self.paper_engine.update_quotes(
