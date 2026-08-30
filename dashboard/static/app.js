@@ -235,12 +235,9 @@ function showToast(message, type = "success") {
     }, 3800);
 }
 
-// ==================== Authentication Helpers ====================
-
 async function checkExistingAuth() {
     if (!authToken) {
-        // Non-blocking: connect WebSocket for live public telemetry immediately
-        connectWebSocket();
+        window.location.href = "/login";
         return;
     }
     try {
@@ -252,12 +249,18 @@ async function checkExistingAuth() {
             if (currentUserDisplay && data.user && data.user.username) {
                 currentUserDisplay.textContent = data.user.username.toUpperCase();
             }
+            connectWebSocket();
+            loadHistoricalLogs();
+        } else {
+            authToken = "";
+            localStorage.removeItem("poly_token");
+            window.location.href = "/login";
         }
     } catch (e) {
         console.warn("Auth verify notice:", e);
+        connectWebSocket();
+        loadHistoricalLogs();
     }
-    connectWebSocket();
-    loadHistoricalLogs();
 }
 
 // ==================== Profile & Security Settings ====================
@@ -2041,84 +2044,29 @@ function renderTurnstileWidget(siteKey) {
     }
 }
 
-// 3. Login Modal Handling
-function showLoginModal() {
-    if (loginModal) {
-        loginModal.classList.remove("hidden");
-        initTurnstileCaptcha();
-        refreshIcons();
-    }
-}
-
-function hideLoginModal() {
-    if (loginModal) loginModal.classList.add("hidden");
-}
-
-if (btnCloseLoginModal) {
-    btnCloseLoginModal.addEventListener("click", hideLoginModal);
-}
-
-if (loginForm) {
-    loginForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const username = loginUsername ? loginUsername.value.trim() : "";
-        const password = loginPassword ? loginPassword.value : "";
-        if (loginErrorMsg) loginErrorMsg.classList.add("hidden");
-
-        try {
-            const res = await fetch("/api/auth/login", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    username: username,
-                    password: password,
-                    cf_turnstile_response: window._turnstileToken || undefined
-                })
-            });
-
-            const data = await res.json();
-            if (res.ok && data.success) {
-                authToken = data.token;
-                try { localStorage.setItem("poly_token", authToken); } catch (err) {}
-                hideLoginModal();
-                if (currentUserDisplay && data.user) {
-                    currentUserDisplay.textContent = (data.user.username || "ADMIN").toUpperCase();
-                }
-                showToast("Welcome back to Poly-Harvester Terminal!", "success");
-                connectWebSocket();
-                loadHistoricalLogs();
-            } else {
-                if (loginErrorMsg) {
-                    loginErrorMsg.textContent = data.error || "Authentication failed.";
-                    loginErrorMsg.classList.remove("hidden");
-                }
-                if (window.turnstile && window._turnstileWidgetId !== null) {
-                    try { turnstile.reset(window._turnstileWidgetId); } catch (err) {}
-                    window._turnstileToken = "";
-                }
-            }
-        } catch (err) {
-            if (loginErrorMsg) {
-                loginErrorMsg.textContent = "Network error during authentication.";
-                loginErrorMsg.classList.remove("hidden");
-            }
-        }
-    });
-}
-
 if (btnLogout) {
     btnLogout.addEventListener("click", async () => {
-        try {
-            await fetch("/api/auth/logout", {
-                method: "POST",
-                headers: { "X-Auth-Token": authToken }
-            });
-        } catch (err) {}
-        authToken = "";
-        try { localStorage.removeItem("poly_token"); } catch (err) {}
-        if (ws) ws.close();
-        showToast("Logged out successfully.", "info");
-        showLoginModal();
+        const accepted = await customConfirm({
+            title: "Log Out of Terminal",
+            message: "Are you sure you want to end your active session on the Quant Control Center?",
+            type: "warning",
+            confirmText: "Log Out",
+            cancelText: "Stay Connected",
+            icon: "log-out"
+        });
+
+        if (accepted) {
+            try {
+                await fetch("/api/auth/logout", {
+                    method: "POST",
+                    headers: { "X-Auth-Token": authToken }
+                });
+            } catch (err) {}
+            authToken = "";
+            try { localStorage.removeItem("poly_token"); } catch (err) {}
+            if (ws) ws.close();
+            window.location.href = "/login";
+        }
     });
 }
 

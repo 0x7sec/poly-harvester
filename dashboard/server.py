@@ -127,10 +127,10 @@ class DashboardServer:
             return peer[0]
         return "127.0.0.1"
 
-    def _setup_routes(self):
-        # Static Assets
+        # Static Assets & Pages
         static_dir = os.path.join(os.path.dirname(__file__), "static")
         self.app.router.add_get("/", self._handle_index)
+        self.app.router.add_get("/login", self._handle_login_page)
         self.app.router.add_static("/static/", path=static_dir, name="static")
 
         # Authentication Endpoints
@@ -192,9 +192,28 @@ class DashboardServer:
         self.app.router.add_get("/ws", self._handle_websocket)
 
     async def _handle_index(self, request: web.Request):
+        """Serves main terminal dashboard with strict authentication and cache-busting headers."""
+        if not self._verify_auth(request):
+            raise web.HTTPFound("/login")
+
         static_dir = os.path.join(os.path.dirname(__file__), "static")
         index_path = os.path.join(static_dir, "index.html")
-        return web.FileResponse(index_path)
+        response = web.FileResponse(index_path)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
+    async def _handle_login_page(self, request: web.Request):
+        """Serves dedicated /login page or redirects to dashboard if already authenticated."""
+        if self._verify_auth(request):
+            raise web.HTTPFound("/")
+
+        static_dir = os.path.join(os.path.dirname(__file__), "static")
+        login_path = os.path.join(static_dir, "login.html")
+        response = web.FileResponse(login_path)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
 
     async def _handle_turnstile_public(self, request: web.Request):
         """Public endpoint returning whether Turnstile is enabled and the public site_key."""

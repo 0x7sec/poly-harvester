@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poly-Harvester // Quant Terminal Login</title>
+    <link rel="stylesheet" href="/static/style.css?v=1.4.5">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        .login-page-layout {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            position: relative;
+            z-index: 1;
+        }
+        .login-card-full {
+            width: 100%;
+            max-width: 440px;
+            padding: 36px 32px;
+            border-radius: var(--radius-lg);
+            background: rgba(13, 20, 32, 0.90);
+            border: 1px solid var(--border-highlight);
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.85), 0 0 30px rgba(6, 182, 212, 0.12);
+            backdrop-filter: blur(20px);
+            animation: fadeInScale 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        @keyframes fadeInScale {
+            from { opacity: 0; transform: scale(0.96) translateY(10px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .login-brand {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 24px;
+            padding-bottom: 18px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .login-brand-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: rgba(6, 182, 212, 0.12);
+            border: 1px solid rgba(6, 182, 212, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-cyan);
+            box-shadow: 0 0 16px var(--accent-cyan-glow);
+        }
+        .login-brand-text h1 {
+            font-size: 1.15rem;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: #ffffff;
+            line-height: 1.2;
+        }
+        .login-brand-text p {
+            font-size: 0.74rem;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .login-field {
+            margin-bottom: 18px;
+        }
+        .login-field label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            letter-spacing: 0.3px;
+        }
+        .login-field input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            color: #ffffff;
+            font-family: var(--font-mono);
+            font-size: 0.88rem;
+            outline: none;
+            transition: var(--transition);
+        }
+        .login-field input:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 14px rgba(6, 182, 212, 0.3);
+            background: rgba(6, 182, 212, 0.04);
+        }
+        .turnstile-box {
+            margin: 14px 0;
+            display: flex;
+            justify-content: center;
+            min-height: 65px;
+        }
+        .login-error {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            color: #fca5a5;
+            padding: 10px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 0.80rem;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .login-footer-note {
+            margin-top: 22px;
+            text-align: center;
+            font-size: 0.70rem;
+            color: var(--text-muted);
+            letter-spacing: 0.4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="background-glow-top"></div>
+    <div class="background-glow-bottom"></div>
+
+    <div class="login-page-layout">
+        <div class="login-card-full">
+            <div class="login-brand">
+                <div class="login-brand-icon">
+                    <i data-lucide="shield-check" class="icon-lg"></i>
+                </div>
+                <div class="login-brand-text">
+                    <h1>POLY-HARVESTER</h1>
+                    <p class="font-mono">QUANT ARBITRAGE TERMINAL v1.4</p>
+                </div>
+            </div>
+
+            <form id="loginPageForm">
+                <div class="login-field">
+                    <label for="inputUsername">OPERATOR USERNAME</label>
+                    <input type="text" id="inputUsername" placeholder="Enter username..." class="font-mono" required autocomplete="username" autofocus>
+                </div>
+
+                <div class="login-field">
+                    <label for="inputPassword">PASSWORD</label>
+                    <input type="password" id="inputPassword" placeholder="Enter password..." class="font-mono" required autocomplete="current-password">
+                </div>
+
+                <!-- Cloudflare Turnstile Dynamic Widget Container -->
+                <div id="turnstileWrapper" class="turnstile-box hidden">
+                    <div id="turnstileWidget"></div>
+                </div>
+
+                <div id="loginErrorMsg" class="login-error font-mono hidden">
+                    <i data-lucide="alert-triangle" class="icon-xs"></i>
+                    <span id="loginErrorText">Authentication failed</span>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block" id="btnSubmitLogin">
+                    <i data-lucide="log-in" class="icon-xs"></i>
+                    <span>AUTHENTICATE &amp; ENTER</span>
+                </button>
+            </form>
+
+            <div class="login-footer-note font-mono">
+                <span>🔒 EIP-712 Session Encrypted • SQLite WAL Protection</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let _turnstileToken = "";
+        let _turnstileWidgetId = null;
+
+        function refreshIcons() {
+            if (window.lucide && typeof lucide.createIcons === 'function') {
+                lucide.createIcons();
+            }
+        }
+
+        async function initTurnstile() {
+            try {
+                const res = await fetch("/api/security/turnstile?_t=" + Date.now());
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.enabled && data.site_key) {
+                    const wrapper = document.getElementById("turnstileWrapper");
+                    if (wrapper) wrapper.classList.remove("hidden");
+
+                    const renderWidget = () => {
+                        if (!window.turnstile) return;
+                        if (_turnstileWidgetId !== null) turnstile.remove(_turnstileWidgetId);
+                        _turnstileWidgetId = turnstile.render("#turnstileWidget", {
+                            sitekey: data.site_key,
+                            theme: "dark",
+                            callback: (token) => { _turnstileToken = token; },
+                            "error-callback": () => { _turnstileToken = ""; },
+                            "expired-callback": () => { _turnstileToken = ""; }
+                        });
+                    };
+
+                    if (!window.turnstile) {
+                        const script = document.createElement("script");
+                        script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+                        script.async = true;
+                        script.defer = true;
+                        script.onload = renderWidget;
+                        document.head.appendChild(script);
+                    } else {
+                        renderWidget();
+                    }
+                }
+            } catch (err) {
+                console.warn("Turnstile check notice:", err);
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            refreshIcons();
+            initTurnstile();
+
+            const form = document.getElementById("loginPageForm");
+            const userInput = document.getElementById("inputUsername");
+            const passInput = document.getElementById("inputPassword");
+            const errorBox = document.getElementById("loginErrorMsg");
+            const errorText = document.getElementById("loginErrorText");
+            const submitBtn = document.getElementById("btnSubmitLogin");
+
+            form.addEventListener("submit", async (e) => {
+                e.preventDefault();
+                errorBox.classList.add("hidden");
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i data-lucide="loader-2" class="icon-xs spin"></i> <span>VERIFYING...</span>';
+                refreshIcons();
+
+                const username = userInput.value.trim();
+                const password = passInput.value;
+
+                try {
+                    const res = await fetch("/api/auth/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            username: username,
+                            password: password,
+                            cf_turnstile_response: _turnstileToken || undefined
+                        })
+                    });
+
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        localStorage.setItem("poly_token", data.token);
+                        // Redirect to main terminal dashboard
+                        window.location.href = "/";
+                    } else {
+                        errorText.textContent = data.error || "Invalid username or password.";
+                        errorBox.classList.remove("hidden");
+                        refreshIcons();
+                        if (window.turnstile && _turnstileWidgetId !== null) {
+                            try { turnstile.reset(_turnstileWidgetId); } catch (err) {}
+                            _turnstileToken = "";
+                        }
+                    }
+                } catch (err) {
+                    errorText.textContent = "Network error connecting to server.";
+                    errorBox.classList.remove("hidden");
+                    refreshIcons();
+                } finally {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i data-lucide="log-in" class="icon-xs"></i> <span>AUTHENTICATE &amp; ENTER</span>';
+                    refreshIcons();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Poly-Harvester // Cyber-Quant Terminal</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v=1.4.5">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1141,51 +1141,6 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
         </div>
     </div>
 
-    <!-- Dedicated Login & Security Modal -->
-    <div class="modal-overlay hidden" id="loginModal">
-        <div class="modal-card modal-sm glass-panel">
-            <div class="modal-header">
-                <div class="brand-group">
-                    <div class="modal-icon-badge">
-                        <i data-lucide="lock" class="icon-lg text-cyan"></i>
-                    </div>
-                    <div>
-                        <h3>QUANT TERMINAL LOGIN</h3>
-                        <p class="modal-subtitle font-mono">Poly-Harvester Autonomous Quant Engine</p>
-                    </div>
-                </div>
-                <button class="btn-modal-close" id="btnCloseLoginModal" type="button" title="Close Modal">
-                    <i data-lucide="x" class="icon-md"></i>
-                </button>
-            </div>
-
-            <form id="loginForm" class="modal-body">
-                <div class="form-group">
-                    <label for="loginUsername">Username:</label>
-                    <input type="text" id="loginUsername" placeholder="Enter username..." class="font-mono" required autocomplete="username">
-                </div>
-
-                <div class="form-group">
-                    <label for="loginPassword">Password:</label>
-                    <input type="password" id="loginPassword" placeholder="Enter password..." class="font-mono" required autocomplete="current-password">
-                </div>
-
-                <!-- Cloudflare Turnstile Dynamic Widget Container -->
-                <div id="loginTurnstileContainer" class="turnstile-wrapper hidden">
-                    <div id="cfTurnstileWidget"></div>
-                </div>
-
-                <div id="loginErrorMsg" class="text-red font-mono text-xs hidden"></div>
-
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-primary btn-block" id="btnSubmitLogin">
-                        <i data-lucide="log-in" class="icon-xs"></i> Authenticate &amp; Enter
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <!-- Custom Confirmation & Alert Modal -->
     <div class="modal-overlay hidden" id="customConfirmModal">
         <div class="modal-card modal-dialog glass-panel">
@@ -1204,6 +1159,6 @@ Auth Header: X-MCP-API-Key: &lt;YOUR_MCP_API_KEY&gt;</code></pre>
     <!-- Toast Notification Container -->
     <div class="toast-container font-mono" id="toastContainer"></div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=1.4.5"></script>
 </body>
 </html>

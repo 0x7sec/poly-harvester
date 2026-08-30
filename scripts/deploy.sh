@@ -27,14 +27,15 @@ if command -v $INSTALL_DIR/venv/bin/pip &> /dev/null; then
     $INSTALL_DIR/venv/bin/pip install uvloop || true
 fi
 
-echo "🚀 Restarting poly-harvester.service..."
+echo "🚀 Restarting poly-harvester.service & reloading Nginx..."
 systemctl restart poly-harvester.service
+nginx -t && systemctl reload nginx || true
 
 # Wait 3 seconds and verify service health
 sleep 3
 if systemctl is-active --quiet poly-harvester.service; then
     echo "✅ Service successfully restarted and ACTIVE!"
-    echo "   Dashboard reachable at port 8443"
+    echo "   Dashboard reachable at https://poly.0x7sec.com (port 8443)"
 else
     echo "❌ Error: Service failed to start. Showing last 30 log lines:"
     journalctl -u poly-harvester -n 30 --no-pager

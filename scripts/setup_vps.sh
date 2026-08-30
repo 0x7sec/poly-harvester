@@ -121,6 +121,10 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
+        # Disable caching so UI updates are immediately visible without Cloudflare stale cache
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        add_header Pragma "no-cache" always;
+
         # Disable buffering for zero-latency tick delivery
         proxy_buffering off;
         proxy_read_timeout 86400s;
